@@ -55,7 +55,6 @@ export const Login = () => {
                 className="border-[#00A5A7]/20 focus:border-[#00A5A7]"
               />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
@@ -69,12 +68,18 @@ export const Login = () => {
               />
             </div>
 
+            {/* ← NEW: Forgot password link */}
+            <div className="text-right">
+              <Link to="/forgot-password" className="text-[#00A5A7] hover:underline text-sm">
+                Forgot password?
+              </Link>
+            </div>
+
             {error && (
               <p className="text-red-500 text-sm bg-red-50 border border-red-200 rounded-md px-3 py-2">
                 {error}
               </p>
             )}
-
             <Button
               type="submit"
               disabled={loading}
@@ -82,7 +87,6 @@ export const Login = () => {
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
-
             <div className="text-center">
               <p className="text-[#717182]">
                 Don't have an account?{' '}
