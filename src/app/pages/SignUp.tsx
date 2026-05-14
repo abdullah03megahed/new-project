@@ -45,13 +45,19 @@ export const SignUp = () => {
     setLoading(true);
     try {
       // Backend expects: displayName, email, phoneNumber, password, role
-      await signup({
-        displayName: `${studentData.firstName} ${studentData.lastName}`,
-        email: studentData.email,
-        phoneNumber: studentData.phone,
-        password: studentData.password,
-        role: 'Student',
-      });
+       await signup({
+         displayName: `${studentData.firstName} ${studentData.lastName}`,
+         email: studentData.email,
+       phoneNumber: studentData.phone,
+       password: studentData.password,
+       role: 'Student',
+       gender: studentData.gender,
+       nationalId: studentData.nationalId,
+       dateOfBirth: studentData.dateOfBirth,
+       address: studentData.address,
+       faculty: studentData.faculty,
+       lookingForRoommate: studentData.lookingForRoommate,
+});
       navigate('/matching');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed. Please try again.';
@@ -66,12 +72,14 @@ export const SignUp = () => {
     setLoading(true);
     try {
       await signup({
-        displayName: `${landlordData.firstName} ${landlordData.lastName}`,
-        email: landlordData.email,
-        phoneNumber: '',   // backend may not require phone for landlords
-        password: landlordData.password,
-        role: 'LandLord',
-      });
+  displayName: `${landlordData.firstName} ${landlordData.lastName}`,
+  email: landlordData.email,
+  phoneNumber: '',
+  password: landlordData.password,
+  role: 'LandLord',
+  nationalId: landlordData.nationalId,
+  address: landlordData.address,
+});
       navigate('/');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed. Please try again.';
