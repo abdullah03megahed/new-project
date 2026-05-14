@@ -33,6 +33,12 @@ export interface SignupPayload {
   phoneNumber: string;
   password: string;
   role: 'Student' | 'LandLord';
+   gender?: string;
+  nationalId?: string;
+  dateOfBirth?: string;
+  address?: string;
+  faculty?: string;
+  lookingForRoommate?: boolean;
 }
 
 // Backend login/register response shape
