@@ -10,6 +10,8 @@ import { Login } from '../pages/Login';
 import { SignUp } from '../pages/SignUp';
 import { Admin } from '../pages/Admin';
 import { Matching } from '../pages/Matching';
+import { ForgotPassword } from '../pages/ForgotPassword';  // ← fix path
+import { ResetPassword } from '../pages/ResetPassword';    // ← fix path
 
 export const router = createBrowserRouter([
   {
@@ -26,6 +28,8 @@ export const router = createBrowserRouter([
       { path: 'login', Component: Login },
       { path: 'signup', Component: SignUp },
       { path: 'matching', Component: Matching },
+      { path: 'forgot-password', Component: ForgotPassword },  //  added
+      { path: 'reset-password', Component: ResetPassword },    //  added
     ],
   },
   {
