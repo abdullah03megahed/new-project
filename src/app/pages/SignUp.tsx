@@ -45,20 +45,19 @@ export const SignUp = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Backend expects: displayName, email, phoneNumber, password, role
-       await signup({
-         displayName: `${studentData.firstName} ${studentData.lastName}`,
-         email: studentData.email,
-       phoneNumber: studentData.phone,
-       password: studentData.password,
-       role: 'Student',
-       gender: studentData.gender,
-       nationalId: studentData.nationalId,
-       dateOfBirth: studentData.dateOfBirth,
-       address: studentData.address,
-       faculty: studentData.faculty,
-       lookingForRoommate: studentData.lookingForRoommate,
-});
+      await signup({
+        displayName: `${studentData.firstName} ${studentData.lastName}`,
+        email: studentData.email,
+        phoneNumber: studentData.phone,
+        password: studentData.password,
+        role: 'Student',
+        gender: studentData.gender,
+        nationalId: studentData.nationalId,
+        dateOfBirth: studentData.dateOfBirth,
+        address: studentData.address,
+        faculty: studentData.faculty,
+        lookingForRoommate: studentData.lookingForRoommate,
+      });
       navigate('/matching');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed. Please try again.';
@@ -73,14 +72,14 @@ export const SignUp = () => {
     setLoading(true);
     try {
       await signup({
-  displayName: `${landlordData.firstName} ${landlordData.lastName}`,
-  email: landlordData.email,
-  phoneNumber: landlordData.phoneNumber,
-  password: landlordData.password,
-  role: 'LandLord',
-  nationalId: landlordData.nationalId,
-  address: landlordData.address,
-});
+        displayName: `${landlordData.firstName} ${landlordData.lastName}`,
+        email: landlordData.email,
+        phoneNumber: landlordData.phoneNumber,
+        password: landlordData.password,
+        role: 'LandLord',
+        nationalId: landlordData.nationalId,
+        address: landlordData.address,
+      });
       navigate('/');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed. Please try again.';
@@ -147,18 +146,6 @@ export const SignUp = () => {
                     required
                   />
                 </div>
-                <div className="space-y-2">
-  <Label htmlFor="landlord-phone">Phone Number</Label>
-  <Input
-    id="landlord-phone"
-    value={landlordData.phoneNumber}
-    onChange={(e) => setLandlordData({ ...landlordData, phoneNumber: e.target.value })}
-    required
-  />
-</div>
-
-<div className="space-y-2">
-  <Label htmlFor="landlord-password">Password</Label>
 
                 <div className="space-y-2">
                   <Label htmlFor="student-password">Password</Label>
@@ -295,6 +282,17 @@ export const SignUp = () => {
                     type="email"
                     value={landlordData.email}
                     onChange={(e) => setLandlordData({ ...landlordData, email: e.target.value })}
+                    required
+                  />
+                </div>
+
+                {/* Phone Number — added here */}
+                <div className="space-y-2">
+                  <Label htmlFor="landlord-phone">Phone Number</Label>
+                  <Input
+                    id="landlord-phone"
+                    value={landlordData.phoneNumber}
+                    onChange={(e) => setLandlordData({ ...landlordData, phoneNumber: e.target.value })}
                     required
                   />
                 </div>
