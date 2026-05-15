@@ -12,20 +12,28 @@ export const ForgotPassword = () => {
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    try {
-      await api.post('/Authentication/Forgot-password', { email });
-      setSent(true);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
-      setError(message);
-    } finally {
-      setLoading(false);
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setLoading(true);
+  setError('');
+  try {
+    const res = await fetch('https://unimate.runasp.net/api/Authentication/Forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || 'Something went wrong.');
     }
-  };
+    setSent(true);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+    setError(message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-[calc(100vh-80px)] bg-[#B19CD9]/10 flex items-center justify-center p-4">
