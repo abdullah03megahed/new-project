@@ -75,7 +75,7 @@ export const SignUp = () => {
       await signup({
   displayName: `${landlordData.firstName} ${landlordData.lastName}`,
   email: landlordData.email,
-  phoneNumber: landlorData.phoneNumber,
+  phoneNumber: landlordData.phoneNumber,
   password: landlordData.password,
   role: 'LandLord',
   nationalId: landlordData.nationalId,
