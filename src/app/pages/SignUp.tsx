@@ -38,6 +38,7 @@ export const SignUp = () => {
     password: '',
     nationalId: '',
     address: '',
+    phoneNumber: '',
   });
 
   const handleStudentSubmit = async (e: React.FormEvent) => {
