@@ -75,7 +75,7 @@ export const SignUp = () => {
       await signup({
   displayName: `${landlordData.firstName} ${landlordData.lastName}`,
   email: landlordData.email,
-  phoneNumber: '',
+  phoneNumber: landlorData.phoneNumber,
   password: landlordData.password,
   role: 'LandLord',
   nationalId: landlordData.nationalId,
@@ -147,6 +147,18 @@ export const SignUp = () => {
                     required
                   />
                 </div>
+                <div className="space-y-2">
+  <Label htmlFor="landlord-phone">Phone Number</Label>
+  <Input
+    id="landlord-phone"
+    value={landlordData.phoneNumber}
+    onChange={(e) => setLandlordData({ ...landlordData, phoneNumber: e.target.value })}
+    required
+  />
+</div>
+
+<div className="space-y-2">
+  <Label htmlFor="landlord-password">Password</Label>
 
                 <div className="space-y-2">
                   <Label htmlFor="student-password">Password</Label>
