@@ -116,11 +116,13 @@ export const AddHouse = () => {
       listingImages.forEach(file => fd.append('ListingImages', file));
 
       // Rooms as JSON array string
-      const roomsPayload = rooms.map(r => ({
-        BedCount: r.bedCount,
-        PricePerBed: r.pricePerBed,
-      }));
-      fd.append('Rooms', JSON.stringify(roomsPayload));
+      rooms.forEach((room, index) => {
+       fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
+       fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
+       room.images.forEach(file => {
+        fd.append(`Rooms[${index}].RoomImages`, file);
+       });
+      });
 
       if (editId) {
         await api.upload<any>(`/Listing/${editId}`, fd);
