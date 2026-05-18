@@ -1,36 +1,80 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '../utils/AuthContext';
-import { mockHouses } from '../utils/mockData';
+import { api } from '../utils/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Checkbox } from '../components/ui/checkbox';
-import { ArrowLeft } from 'lucide-react';
-import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface RoomInput {
+  bedCount: number;
+  pricePerBed: number;
+  images: File[];
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export const AddHouse = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('edit');
-  const existingHouse = editId ? mockHouses.find((h) => h.id === editId) : null;
+  const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
-    title: existingHouse?.title || '',
-    price: existingHouse?.price || 0,
-    location: existingHouse?.location || '',
-    area: existingHouse?.area || '',
-    bedrooms: existingHouse?.bedrooms || 1,
-    bathrooms: existingHouse?.bathrooms || 1,
-    floor: existingHouse?.floor || 1,
-    size: existingHouse?.size || 50,
-    description: existingHouse?.description || '',
-    landmarks: existingHouse?.landmarks?.join(', ') || '',
-    featured: existingHouse?.featured || false,
+    title: '',
+    description: '',
+    address: '',
+    street: '',
+    city: '',
+    furnished: false,
+    wifiAvailable: false,
+    genderPreference: '0',
   });
+
+  const [rooms, setRooms] = useState<RoomInput[]>([
+    { bedCount: 1, pricePerBed: 0, images: [] },
+  ]);
+
+  const [listingImages, setListingImages] = useState<File[]>([]);
+
+  // If editing, fetch existing listing data
+  useEffect(() => {
+    if (!editId) return;
+    const fetchListing = async () => {
+      try {
+        const data = await api.get<any>(`/Listing/${editId}`);
+        setFormData({
+          title: data.title || '',
+          description: data.description || '',
+          address: data.address || '',
+          street: data.street || '',
+          city: data.city || '',
+          furnished: data.furnished || false,
+          wifiAvailable: data.wifiAvailable || false,
+          genderPreference: String(data.genderPreference || '0'),
+        });
+        if (data.rooms?.length > 0) {
+          setRooms(data.rooms.map((r: any) => ({
+            bedCount: r.bedCount || 1,
+            pricePerBed: r.pricePerBed || 0,
+            images: [],
+          })));
+        }
+      } catch {
+        toast.error('Failed to load listing for editing.');
+      }
+    };
+    fetchListing();
+  }, [editId]);
 
   if (!user || user.type !== 'landlord') {
     return (
@@ -40,21 +84,64 @@ export const AddHouse = () => {
     );
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const addRoom = () => {
+    setRooms([...rooms, { bedCount: 1, pricePerBed: 0, images: [] }]);
+  };
+
+  const removeRoom = (index: number) => {
+    if (rooms.length === 1) return;
+    setRooms(rooms.filter((_, i) => i !== index));
+  };
+
+  const updateRoom = (index: number, field: keyof RoomInput, value: any) => {
+    setRooms(rooms.map((room, i) => i === index ? { ...room, [field]: value } : room));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock save - in real app, this would call an API
-    if (editId) {
-      toast.success('Property updated successfully!');
-    } else {
-      toast.success('Property added successfully!');
+    setLoading(true);
+
+    try {
+      const fd = new FormData();
+      fd.append('Title', formData.title);
+      fd.append('Description', formData.description);
+      fd.append('Address', formData.address);
+      fd.append('Street', formData.street);
+      fd.append('City', formData.city);
+      fd.append('Furnished', String(formData.furnished));
+      fd.append('WifiAvailable', String(formData.wifiAvailable));
+      fd.append('GenderPreference', formData.genderPreference);
+
+      // Listing images
+      listingImages.forEach(file => fd.append('ListingImages', file));
+
+      // Rooms as JSON array string
+      const roomsPayload = rooms.map(r => ({
+        BedCount: r.bedCount,
+        PricePerBed: r.pricePerBed,
+      }));
+      fd.append('Rooms', JSON.stringify(roomsPayload));
+
+      if (editId) {
+        await api.upload<any>(`/Listing/${editId}`, fd);
+        toast.success('Property updated successfully!');
+      } else {
+        await api.upload<any>('/Listing', fd);
+        toast.success('Property added successfully!');
+      }
+
+      navigate('/dashboard');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save listing.';
+      toast.error(message);
+    } finally {
+      setLoading(false);
     }
-    navigate('/dashboard');
   };
 
   return (
     <div className="min-h-screen bg-[#B19CD9]/5 py-8">
       <div className="container mx-auto px-4 max-w-3xl">
-        {/* Back Button */}
         <Button
           variant="ghost"
           onClick={() => navigate('/dashboard')}
@@ -72,10 +159,11 @@ export const AddHouse = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+
               {/* Basic Information */}
               <div className="space-y-4">
-                <h3 className="text-[#34495E]">Basic Information</h3>
-                
+                <h3 className="text-[#34495E] font-medium">Basic Information</h3>
+
                 <div className="space-y-2">
                   <Label htmlFor="title">Property Title</Label>
                   <Input
@@ -85,29 +173,6 @@ export const AddHouse = () => {
                     placeholder="e.g., Modern Apartment Near Campus"
                     required
                   />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="price">Monthly Price (EGP)</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      value={formData.price}
-                      onChange={(e) => setFormData({ ...formData, price: parseInt(e.target.value) })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="size">Size (m²)</Label>
-                    <Input
-                      id="size"
-                      type="number"
-                      value={formData.size}
-                      onChange={(e) => setFormData({ ...formData, size: parseInt(e.target.value) })}
-                      required
-                    />
-                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -121,121 +186,189 @@ export const AddHouse = () => {
                     required
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="genderPreference">Gender Preference</Label>
+                  <Select
+                    value={formData.genderPreference}
+                    onValueChange={(v) => setFormData({ ...formData, genderPreference: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Any Gender</SelectItem>
+                      <SelectItem value="1">Male Only</SelectItem>
+                      <SelectItem value="2">Female Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex gap-6">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="furnished"
+                      checked={formData.furnished}
+                      onCheckedChange={(c) => setFormData({ ...formData, furnished: c === true })}
+                    />
+                    <Label htmlFor="furnished" className="cursor-pointer">Furnished</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="wifi"
+                      checked={formData.wifiAvailable}
+                      onCheckedChange={(c) => setFormData({ ...formData, wifiAvailable: c === true })}
+                    />
+                    <Label htmlFor="wifi" className="cursor-pointer">WiFi Available</Label>
+                  </div>
+                </div>
               </div>
 
               {/* Location */}
               <div className="space-y-4">
-                <h3 className="text-[#34495E]">Location</h3>
-                
+                <h3 className="text-[#34495E] font-medium">Location</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="area">Area</Label>
+                    <Label htmlFor="city">City</Label>
                     <Input
-                      id="area"
-                      value={formData.area}
-                      onChange={(e) => setFormData({ ...formData, area: e.target.value })}
-                      placeholder="e.g., Nasr City"
+                      id="city"
+                      value={formData.city}
+                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                      placeholder="e.g., Cairo"
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="location">Full Location</Label>
+                    <Label htmlFor="street">Street</Label>
                     <Input
-                      id="location"
-                      value={formData.location}
-                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                      placeholder="e.g., Nasr City, Cairo"
+                      id="street"
+                      value={formData.street}
+                      onChange={(e) => setFormData({ ...formData, street: e.target.value })}
+                      placeholder="e.g., 15 Tahrir St"
                       required
                     />
                   </div>
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="landmarks">Nearby Landmarks</Label>
+                  <Label htmlFor="address">Area / Neighborhood</Label>
                   <Input
-                    id="landmarks"
-                    value={formData.landmarks}
-                    onChange={(e) => setFormData({ ...formData, landmarks: e.target.value })}
-                    placeholder="Separate with commas: Cairo University - 5 min, Metro - 10 min"
+                    id="address"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    placeholder="e.g., Nasr City (this is shown publicly)"
+                    required
                   />
-                  <p className="text-[#717182]">Separate multiple landmarks with commas</p>
                 </div>
               </div>
 
-              {/* Property Details */}
+              {/* Listing Images */}
               <div className="space-y-4">
-                <h3 className="text-[#34495E]">Property Details</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="bedrooms">Bedrooms</Label>
-                    <Input
-                      id="bedrooms"
-                      type="number"
-                      min="1"
-                      value={formData.bedrooms}
-                      onChange={(e) => setFormData({ ...formData, bedrooms: parseInt(e.target.value) })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="bathrooms">Bathrooms</Label>
-                    <Input
-                      id="bathrooms"
-                      type="number"
-                      min="1"
-                      value={formData.bathrooms}
-                      onChange={(e) => setFormData({ ...formData, bathrooms: parseInt(e.target.value) })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="floor">Floor Number</Label>
-                    <Input
-                      id="floor"
-                      type="number"
-                      min="1"
-                      value={formData.floor}
-                      onChange={(e) => setFormData({ ...formData, floor: parseInt(e.target.value) })}
-                      required
-                    />
-                  </div>
+                <h3 className="text-[#34495E] font-medium">Listing Images</h3>
+                <div className="border-2 border-dashed border-[#00A5A7]/30 rounded-lg p-6 text-center">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => setListingImages(Array.from(e.target.files || []))}
+                    className="hidden"
+                    id="listing-images"
+                  />
+                  <label htmlFor="listing-images" className="cursor-pointer">
+                    <p className="text-[#717182] mb-2">
+                      {listingImages.length > 0
+                        ? `${listingImages.length} image(s) selected`
+                        : 'Click to upload listing images'}
+                    </p>
+                    <Button type="button" variant="outline" className="border-[#00A5A7] text-[#00A5A7]">
+                      Choose Images
+                    </Button>
+                  </label>
                 </div>
               </div>
 
-              {/* Images & Media */}
+              {/* Rooms */}
               <div className="space-y-4">
-                <h3 className="text-[#34495E]">Images & Media</h3>
-                <div className="border-2 border-dashed border-[#00A5A7]/30 rounded-lg p-8 text-center">
-                  <p className="text-[#717182] mb-2">Upload property images</p>
-                  <Button type="button" variant="outline" className="border-[#00A5A7] text-[#00A5A7]">
-                    Choose Files
+                <div className="flex justify-between items-center">
+                  <h3 className="text-[#34495E] font-medium">Rooms</h3>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addRoom}
+                    className="border-[#00A5A7] text-[#00A5A7]"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Room
                   </Button>
-                  <p className="text-[#717182] mt-2">Image upload feature - coming soon!</p>
                 </div>
+
+                {rooms.map((room, index) => (
+                  <Card key={index} className="border-[#B19CD9]/20">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-[#34495E] font-medium">Room {index + 1}</h4>
+                        {rooms.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeRoom(index)}
+                            className="text-[#FF6F61] hover:text-[#FF6F61]"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Number of Beds</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={room.bedCount}
+                            onChange={(e) => updateRoom(index, 'bedCount', parseInt(e.target.value))}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Price Per Bed (EGP/month)</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={room.pricePerBed}
+                            onChange={(e) => updateRoom(index, 'pricePerBed', parseFloat(e.target.value))}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Room Images (optional)</Label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => updateRoom(index, 'images', Array.from(e.target.files || []))}
+                          className="text-sm text-[#717182]"
+                        />
+                        {room.images.length > 0 && (
+                          <p className="text-xs text-[#00A5A7]">{room.images.length} image(s) selected</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
 
-              {/* Featured */}
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="featured"
-                  checked={formData.featured}
-                  onCheckedChange={(checked) =>
-                    setFormData({ ...formData, featured: checked === true })
-                  }
-                />
-                <Label htmlFor="featured" className="cursor-pointer">
-                  Mark as featured property
-                </Label>
-              </div>
-
-              {/* Submit Buttons */}
+              {/* Submit */}
               <div className="flex gap-4 pt-4">
                 <Button
                   type="submit"
+                  disabled={loading}
                   className="flex-1 bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
                 >
-                  {editId ? 'Update Property' : 'Add Property'}
+                  {loading ? 'Saving...' : editId ? 'Update Property' : 'Add Property'}
                 </Button>
                 <Button
                   type="button"
@@ -253,4 +386,3 @@ export const AddHouse = () => {
     </div>
   );
 };
-
