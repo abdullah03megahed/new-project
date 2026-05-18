@@ -38,11 +38,11 @@ export const ResetPassword = () => {
 
     setLoading(true);
     try {
-      await api.post('/Authentication/Reset-password', {
-        email: emailFromUrl,
-        token: decodeURIComponent(tokenFromUrl),
-        newPassword,
-      });
+        await api.post('/Authentication/Reset-password', {
+          email: emailFromUrl,
+          token: decodeURIComponent(tokenFromUrl),
+          newPassword,
+        });
       // Redirect to login with a success flag
       navigate('/login?reset=success');
     } catch (err: unknown) {
