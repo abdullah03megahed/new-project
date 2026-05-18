@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { Search, TrendingUp, Award, SlidersHorizontal } from 'lucide-react';
-import { mockHouses } from '../utils/mockData';
-import { HouseCard } from '../components/HouseCard';
+import { api } from '../utils/api';
+import { HouseCard, Listing } from '../components/HouseCard';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Slider } from '../components/ui/slider';
@@ -13,17 +13,40 @@ import {
   PopoverTrigger,
 } from '../components/ui/popover';
 
-// Make sure this file exists at src/assets/hero-image.png
-// If you don't have it, replace with a URL string instead
-import heroImage from "../../assets/hero-image.png";
+import heroImage from '../../assets/cd6dd4e08337e596d3243a6d5cdac5811e60fa10.png';
+
+interface PaginatedListings {
+  pageIndex: number; pageSize: number;
+  count: number; data: Listing[];
+}
 
 export const Home = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [priceRange, setPriceRange] = useState([1000, 5000]);
+  const [featuredListings, setFeaturedListings] = useState<Listing[]>([]);
+  const [latestListings, setLatestListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const recommendedHouses = mockHouses.filter((house) => house.featured && house.approved).slice(0, 6);
-  const topHouses = [...mockHouses].filter(house => house.approved).sort((a, b) => b.rating - a.rating).slice(0, 10);
+  useEffect(() => {
+    const fetchListings = async () => {
+      try {
+        // Fetch latest listings (sorted by publishedAt = option 3)
+        const latest = await api.get<PaginatedListings>(
+          '/Listing?SortingOption=3&PageSize=8&PageIndex=1'
+        );
+        setLatestListings(latest.data || []);
+
+        // Fetch first page as "featured" (no featured flag in API, use first 6)
+        setFeaturedListings((latest.data || []).slice(0, 6));
+      } catch {
+        // silently fail — home page still loads
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchListings();
+  }, []);
 
   const handleSearch = () => {
     navigate(`/houses?search=${searchQuery}&minPrice=${priceRange[0]}&maxPrice=${priceRange[1]}`);
@@ -58,9 +81,10 @@ export const Home = () => {
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="flex-1">
                   <Input
-                    placeholder="Search by area (e.g., Nasr City, Heliopolis, Dokki)"
+                    placeholder="Search by city (e.g., Cairo, Giza, Alexandria)"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                     className="h-12"
                   />
                 </div>
@@ -73,13 +97,11 @@ export const Home = () => {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-80">
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label className="text-[#34495E]">
-                            Price Range: EGP {priceRange[0].toLocaleString()} - EGP {priceRange[1].toLocaleString()}
-                          </Label>
-                          <Slider min={1000} max={10000} step={100} value={priceRange} onValueChange={setPriceRange} className="w-full" />
-                        </div>
+                      <div className="space-y-2">
+                        <Label className="text-[#34495E]">
+                          Price Range: EGP {priceRange[0].toLocaleString()} - EGP {priceRange[1].toLocaleString()}
+                        </Label>
+                        <Slider min={0} max={10000} step={100} value={priceRange} onValueChange={setPriceRange} className="w-full" />
                       </div>
                     </PopoverContent>
                   </Popover>
@@ -95,13 +117,11 @@ export const Home = () => {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-80">
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label className="text-[#34495E]">
-                          Price Range: EGP {priceRange[0].toLocaleString()} - EGP {priceRange[1].toLocaleString()}
-                        </Label>
-                        <Slider min={1000} max={10000} step={100} value={priceRange} onValueChange={setPriceRange} className="w-full" />
-                      </div>
+                    <div className="space-y-2">
+                      <Label className="text-[#34495E]">
+                        Price Range: EGP {priceRange[0].toLocaleString()} - EGP {priceRange[1].toLocaleString()}
+                      </Label>
+                      <Slider min={0} max={10000} step={100} value={priceRange} onValueChange={setPriceRange} className="w-full" />
                     </div>
                   </PopoverContent>
                 </Popover>
@@ -116,42 +136,64 @@ export const Home = () => {
         </div>
       </div>
 
+      {/* Featured Listings */}
       <div className="container mx-auto px-4 py-12">
         <div className="flex items-center gap-3 mb-6">
           <Award className="w-8 h-8 text-[#FFC759]" />
-          <h2 className="text-[#34495E]">Recommended Houses</h2>
+          <h2 className="text-[#34495E]">Featured Listings</h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {recommendedHouses.map((house) => (
-            <HouseCard key={house.id} house={house} />
-          ))}
-        </div>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-64 bg-gray-100 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        ) : featuredListings.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {featuredListings.map((listing) => (
+              <HouseCard key={listing.id} listing={listing} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-[#717182]">No listings available yet.</p>
+        )}
       </div>
 
+      {/* Latest Listings */}
       <div className="bg-[#B19CD9]/5 py-12">
         <div className="container mx-auto px-4">
           <div className="flex items-center gap-3 mb-6">
             <TrendingUp className="w-8 h-8 text-[#00A5A7]" />
-            <h2 className="text-[#34495E]">Top Rated Houses</h2>
+            <h2 className="text-[#34495E]">Latest Listings</h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {topHouses.map((house) => (
-              <HouseCard key={house.id} house={house} />
-            ))}
-          </div>
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="h-64 bg-gray-100 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : latestListings.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {latestListings.map((listing) => (
+                <HouseCard key={listing.id} listing={listing} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-[#717182]">No listings available yet.</p>
+          )}
         </div>
       </div>
 
+      {/* CTA */}
       <div className="bg-gradient-to-r from-[#00A5A7] to-[#00A5A7]/80 text-white py-16">
         <div className="container mx-auto px-4 text-center">
           <h2 className="mb-4">Ready to Find Your Perfect Home?</h2>
-          <p className="mb-6" style={{ fontSize: '18px' }}>Browse through hundreds of verified listings</p>
+          <p className="mb-6" style={{ fontSize: '18px' }}>Browse through verified listings</p>
           <Button onClick={() => navigate('/houses')} className="bg-[#FFC759] hover:bg-[#FFC759]/90 text-[#34495E] px-8 h-12">
-            View All Houses
+            View All Listings
           </Button>
         </div>
       </div>
     </div>
   );
 };
-
