@@ -40,7 +40,7 @@ export const ResetPassword = () => {
     try {
       await api.post('/Authentication/Reset-password', {
         email: emailFromUrl,
-        token: tokenFromUrl,
+        token: decodeURIComponent(tokenFromUrl),
         newPassword,
       });
       // Redirect to login with a success flag
