@@ -2,5 +2,3 @@
 @tailwind components;
 @tailwind utilities;
 
-@import "./default_theme.css";
-@import "./globals.css";
