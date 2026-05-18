@@ -15,7 +15,7 @@ import {
 
 // Make sure this file exists at src/assets/hero-image.png
 // If you don't have it, replace with a URL string instead
-import heroImage from "../../assets/cd6dd4e08337e596d3243a6d5cdac5811e60fa10.png";
+import heroImage from "../../assets/hero-image.png";
 
 export const Home = () => {
   const [searchQuery, setSearchQuery] = useState('');
