@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../utils/AuthContext';
+import { api } from '../utils/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -11,11 +12,49 @@ import { Edit2, Save, X, Upload, MapPin, GraduationCap, DollarSign, Users, Moon 
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface StudentProfile {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber: string;
+  gender: string;
+  nationalId: string;
+  dateOfBirth: string;
+  address: string;
+  faculty: string;
+  lookingForRoommate: boolean;
+  accountId: string;
+}
+
+interface LandlordProfile {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber: string;
+  nationalId: string;
+  address: string;
+  homeTown: string;
+  birthDate: string;
+  accountId: string;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export const Profile = () => {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState(user || {});
+  const [saving, setSaving] = useState(false);
+
+  // Keep formData in sync if user changes (e.g. after login fetch)
+  useEffect(() => {
+    if (user) setFormData(user);
+  }, [user]);
 
   if (!user) {
     return (
@@ -25,10 +64,53 @@ export const Profile = () => {
     );
   }
 
-  const handleSave = () => {
-    updateUser(formData);
-    setIsEditing(false);
-    toast.success('Profile updated successfully!');
+  // ─── Save ──────────────────────────────────────────────────────────────────
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (user.type === 'student' && user.id) {
+        const payload: Partial<StudentProfile> = {
+          firstName: (formData as any).firstName,
+          lastName: (formData as any).lastName,
+          phoneNumber: (formData as any).phone || (formData as any).phoneNumber,
+          gender: (formData as any).gender,
+          dateOfBirth: (formData as any).dateOfBirth,
+          address: (formData as any).address,
+          faculty: (formData as any).faculty,
+          lookingForRoommate: (formData as any).lookingForRoommate ?? false,
+        };
+        await api.put<StudentProfile>(`/Student/${user.id}`, payload);
+        updateUser({
+          ...formData,
+          displayName: `${payload.firstName} ${payload.lastName}`,
+        });
+        toast.success('Profile updated successfully!');
+
+      } else if (user.type === 'landlord' && user.id) {
+        const payload: Partial<LandlordProfile> = {
+          firstName: (formData as any).firstName,
+          lastName: (formData as any).lastName,
+          phoneNumber: (formData as any).phoneNumber || (formData as any).phone,
+          address: (formData as any).address,
+          homeTown: (formData as any).homeTown,
+          birthDate: (formData as any).birthDate || (formData as any).dateOfBirth,
+        };
+        await api.put<LandlordProfile>(`/LandLord/${user.id}`, payload);
+        updateUser({
+          ...formData,
+          displayName: `${payload.firstName} ${payload.lastName}`,
+        });
+        toast.success('Profile updated successfully!');
+      }
+
+      setIsEditing(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save profile.';
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
@@ -37,9 +119,12 @@ export const Profile = () => {
   };
 
   const handlePhotoUpload = () => {
-    // Mock photo upload - in real app, this would handle file upload
-    toast.success('Photo upload feature - coming soon!');
+    toast.info('Photo upload — coming soon!');
   };
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
+  const f = formData as any;
 
   return (
     <div className="min-h-screen bg-[#B19CD9]/5 py-8">
@@ -59,25 +144,27 @@ export const Profile = () => {
               <div className="flex gap-2">
                 <Button
                   onClick={handleSave}
+                  disabled={saving}
                   className="bg-[#B8E986] hover:bg-[#B8E986]/90 text-[#34495E]"
                 >
                   <Save className="w-4 h-4 mr-2" />
-                  Save
+                  {saving ? 'Saving...' : 'Save'}
                 </Button>
-                <Button onClick={handleCancel} variant="outline">
+                <Button onClick={handleCancel} variant="outline" disabled={saving}>
                   <X className="w-4 h-4 mr-2" />
                   Cancel
                 </Button>
               </div>
             )}
           </CardHeader>
+
           <CardContent className="space-y-6">
             {/* Profile Photo */}
             <div className="flex items-center gap-6">
               <Avatar className="w-24 h-24">
-                <AvatarImage src={user.photoUrl} />
+                <AvatarImage src={f.photoUrl} />
                 <AvatarFallback className="bg-[#00A5A7] text-white" style={{ fontSize: '32px' }}>
-                  {user.firstName[0]}{user.lastName[0]}
+                  {(f.firstName?.[0] || '?')}{(f.lastName?.[0] || '')}
                 </AvatarFallback>
               </Avatar>
               {isEditing && (
@@ -95,7 +182,7 @@ export const Profile = () => {
             {/* User Type Badge */}
             <div className="inline-block px-4 py-2 bg-[#00A5A7]/10 rounded-full">
               <span className="text-[#00A5A7]">
-                {user.type === 'student' ? 'Student' : 'Landlord'}
+                {user.type === 'student' ? 'Student' : user.type === 'landlord' ? 'Landlord' : 'Admin'}
               </span>
             </div>
 
@@ -105,8 +192,8 @@ export const Profile = () => {
                 <Label htmlFor="firstName">First Name</Label>
                 <Input
                   id="firstName"
-                  value={formData.firstName}
-                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                  value={f.firstName || ''}
+                  onChange={(e) => setFormData({ ...f, firstName: e.target.value })}
                   disabled={!isEditing}
                 />
               </div>
@@ -114,8 +201,8 @@ export const Profile = () => {
                 <Label htmlFor="lastName">Last Name</Label>
                 <Input
                   id="lastName"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                  value={f.lastName || ''}
+                  onChange={(e) => setFormData({ ...f, lastName: e.target.value })}
                   disabled={!isEditing}
                 />
               </div>
@@ -123,10 +210,10 @@ export const Profile = () => {
 
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" value={formData.email} disabled />
+              <Input id="email" value={f.email || ''} disabled />
             </div>
 
-            {/* Student-specific fields */}
+            {/* ── Student Fields ── */}
             {user.type === 'student' && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -134,8 +221,8 @@ export const Profile = () => {
                     <Label htmlFor="phone">Phone Number</Label>
                     <Input
                       id="phone"
-                      value={formData.phone || ''}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      value={f.phone || f.phoneNumber || ''}
+                      onChange={(e) => setFormData({ ...f, phone: e.target.value, phoneNumber: e.target.value })}
                       disabled={!isEditing}
                     />
                   </div>
@@ -143,11 +230,11 @@ export const Profile = () => {
                     <Label htmlFor="gender">Gender</Label>
                     {isEditing ? (
                       <Select
-                        value={formData.gender}
-                        onValueChange={(value) => setFormData({ ...formData, gender: value as 'male' | 'female' })}
+                        value={f.gender || ''}
+                        onValueChange={(value) => setFormData({ ...f, gender: value })}
                       >
                         <SelectTrigger>
-                          <SelectValue />
+                          <SelectValue placeholder="Select gender" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="male">Male</SelectItem>
@@ -155,7 +242,7 @@ export const Profile = () => {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Input id="gender" value={formData.gender || ''} disabled />
+                      <Input id="gender" value={f.gender || ''} disabled />
                     )}
                   </div>
                 </div>
@@ -163,15 +250,15 @@ export const Profile = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="nationalId">National ID</Label>
-                    <Input id="nationalId" value={formData.nationalId} disabled />
+                    <Input id="nationalId" value={f.nationalId || ''} disabled />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="dateOfBirth">Date of Birth</Label>
                     <Input
                       id="dateOfBirth"
                       type="date"
-                      value={formData.dateOfBirth || ''}
-                      onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                      value={f.dateOfBirth ? f.dateOfBirth.split('T')[0] : ''}
+                      onChange={(e) => setFormData({ ...f, dateOfBirth: e.target.value })}
                       disabled={!isEditing}
                     />
                   </div>
@@ -181,8 +268,18 @@ export const Profile = () => {
                   <Label htmlFor="faculty">Faculty</Label>
                   <Input
                     id="faculty"
-                    value={formData.faculty || ''}
-                    onChange={(e) => setFormData({ ...formData, faculty: e.target.value })}
+                    value={f.faculty || ''}
+                    onChange={(e) => setFormData({ ...f, faculty: e.target.value })}
+                    disabled={!isEditing}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    value={f.address || ''}
+                    onChange={(e) => setFormData({ ...f, address: e.target.value })}
                     disabled={!isEditing}
                   />
                 </div>
@@ -190,9 +287,9 @@ export const Profile = () => {
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     id="lookingForRoommate"
-                    checked={formData.lookingForRoommate || false}
+                    checked={f.lookingForRoommate || false}
                     onCheckedChange={(checked) =>
-                      setFormData({ ...formData, lookingForRoommate: checked === true })
+                      setFormData({ ...f, lookingForRoommate: checked === true })
                     }
                     disabled={!isEditing}
                   />
@@ -203,28 +300,62 @@ export const Profile = () => {
               </>
             )}
 
-            {/* Landlord-specific fields */}
+            {/* ── Landlord Fields ── */}
             {user.type === 'landlord' && (
-              <div className="space-y-2">
-                <Label htmlFor="nationalId">National ID</Label>
-                <Input id="nationalId" value={formData.nationalId} disabled />
-              </div>
-            )}
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="phoneNumber">Phone Number</Label>
+                    <Input
+                      id="phoneNumber"
+                      value={f.phoneNumber || f.phone || ''}
+                      onChange={(e) => setFormData({ ...f, phoneNumber: e.target.value, phone: e.target.value })}
+                      disabled={!isEditing}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="nationalId">National ID</Label>
+                    <Input id="nationalId" value={f.nationalId || ''} disabled />
+                  </div>
+                </div>
 
-            {/* Address (common field) */}
-            <div className="space-y-2">
-              <Label htmlFor="address">Address</Label>
-              <Input
-                id="address"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                disabled={!isEditing}
-              />
-            </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="birthDate">Date of Birth</Label>
+                    <Input
+                      id="birthDate"
+                      type="date"
+                      value={(f.birthDate || f.dateOfBirth || '').split('T')[0]}
+                      onChange={(e) => setFormData({ ...f, birthDate: e.target.value, dateOfBirth: e.target.value })}
+                      disabled={!isEditing}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="homeTown">Home Town</Label>
+                    <Input
+                      id="homeTown"
+                      value={f.homeTown || ''}
+                      onChange={(e) => setFormData({ ...f, homeTown: e.target.value })}
+                      disabled={!isEditing}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    value={f.address || ''}
+                    onChange={(e) => setFormData({ ...f, address: e.target.value })}
+                    disabled={!isEditing}
+                  />
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
-        {/* Matching Preferences Card - Only for Students */}
+        {/* ── Matching Preferences — Students Only ── */}
         {user.type === 'student' && (
           <Card className="mt-6">
             <CardHeader>
@@ -234,7 +365,7 @@ export const Profile = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {!user.governorate && !user.budgetRange && !user.sleepCode ? (
+              {!f.governorate && !f.budgetRange && !f.sleepCode ? (
                 <div className="text-center py-8">
                   <p className="text-[#717182] mb-4">
                     Complete your matching preferences to find the perfect roommate
@@ -248,8 +379,7 @@ export const Profile = () => {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Hometown */}
-                  {formData.governorate && (
+                  {f.governorate && (
                     <div className="bg-[#B19CD9]/5 rounded-lg p-4 border border-[#B19CD9]/20">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-10 h-10 bg-[#00A5A7]/10 rounded-full flex items-center justify-center">
@@ -257,51 +387,25 @@ export const Profile = () => {
                         </div>
                         <Label className="text-[#34495E]">Hometown</Label>
                       </div>
-                      {isEditing ? (
-                        <div className="space-y-2">
-                          <Input
-                            value={formData.governorate || ''}
-                            onChange={(e) => setFormData({ ...formData, governorate: e.target.value })}
-                            placeholder="Governorate"
-                          />
-                          <Input
-                            value={formData.hometown || ''}
-                            onChange={(e) => setFormData({ ...formData, hometown: e.target.value })}
-                            placeholder="Address (optional)"
-                            className="text-sm"
-                          />
-                        </div>
-                      ) : (
-                        <p className="text-[#34495E] ml-13">
-                          {formData.governorate}
-                          {formData.hometown && `, ${formData.hometown}`}
-                        </p>
-                      )}
+                      <p className="text-[#34495E] pl-1">
+                        {f.governorate}{f.hometown && `, ${f.hometown}`}
+                      </p>
                     </div>
                   )}
 
-                  {/* Faculty */}
-                  {formData.faculty && (
+                  {f.faculty && (
                     <div className="bg-[#B19CD9]/5 rounded-lg p-4 border border-[#B19CD9]/20">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-10 h-10 bg-[#FFC759]/10 rounded-full flex items-center justify-center">
                           <GraduationCap className="w-5 h-5 text-[#FFC759]" />
                         </div>
-                        <Label className="text-[#34495E]">Faculty / Study Field</Label>
+                        <Label className="text-[#34495E]">Faculty</Label>
                       </div>
-                      {isEditing ? (
-                        <Input
-                          value={formData.faculty || ''}
-                          onChange={(e) => setFormData({ ...formData, faculty: e.target.value })}
-                        />
-                      ) : (
-                        <p className="text-[#34495E] ml-13">{formData.faculty}</p>
-                      )}
+                      <p className="text-[#34495E] pl-1">{f.faculty}</p>
                     </div>
                   )}
 
-                  {/* Budget Range */}
-                  {formData.budgetRange && (
+                  {f.budgetRange && (
                     <div className="bg-[#B19CD9]/5 rounded-lg p-4 border border-[#B19CD9]/20">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-10 h-10 bg-[#B8E986]/10 rounded-full flex items-center justify-center">
@@ -309,20 +413,11 @@ export const Profile = () => {
                         </div>
                         <Label className="text-[#34495E]">Budget Range</Label>
                       </div>
-                      {isEditing ? (
-                        <Input
-                          value={formData.budgetRange || ''}
-                          onChange={(e) => setFormData({ ...formData, budgetRange: e.target.value })}
-                          placeholder="e.g., 2000-3000"
-                        />
-                      ) : (
-                        <p className="text-[#34495E] ml-13">{formData.budgetRange} EGP/month</p>
-                      )}
+                      <p className="text-[#34495E] pl-1">{f.budgetRange} EGP/month</p>
                     </div>
                   )}
 
-                  {/* Sleep Code */}
-                  {formData.sleepCode && (
+                  {f.sleepCode && (
                     <div className="bg-[#B19CD9]/5 rounded-lg p-4 border border-[#B19CD9]/20">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-10 h-10 bg-[#B19CD9]/10 rounded-full flex items-center justify-center">
@@ -330,32 +425,15 @@ export const Profile = () => {
                         </div>
                         <Label className="text-[#34495E]">Sleep Code</Label>
                       </div>
-                      {isEditing ? (
-                        <Select
-                          value={formData.sleepCode}
-                          onValueChange={(value) => setFormData({ ...formData, sleepCode: value as 'Early Bird' | 'Night Owl' | 'Flexible' })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Early Bird">🌅 Early Bird</SelectItem>
-                            <SelectItem value="Night Owl">🌙 Night Owl</SelectItem>
-                            <SelectItem value="Flexible">⚡ Flexible</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="text-[#34495E] ml-13">
-                          {formData.sleepCode === 'Early Bird' && '🌅 Early Bird'}
-                          {formData.sleepCode === 'Night Owl' && '🌙 Night Owl'}
-                          {formData.sleepCode === 'Flexible' && '⚡ Flexible'}
-                        </p>
-                      )}
+                      <p className="text-[#34495E] pl-1">
+                        {f.sleepCode === 'Early Bird' && '🌅 Early Bird'}
+                        {f.sleepCode === 'Night Owl' && '🌙 Night Owl'}
+                        {f.sleepCode === 'Flexible' && '⚡ Flexible'}
+                      </p>
                     </div>
                   )}
 
-                  {/* Wants Roommate */}
-                  {formData.wantsRoommate !== undefined && (
+                  {f.wantsRoommate !== undefined && (
                     <div className="bg-[#B19CD9]/5 rounded-lg p-4 border border-[#B19CD9]/20">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-10 h-10 bg-[#FF6F61]/10 rounded-full flex items-center justify-center">
@@ -363,29 +441,11 @@ export const Profile = () => {
                         </div>
                         <Label className="text-[#34495E]">Looking for Roommate</Label>
                       </div>
-                      {isEditing ? (
-                        <Select
-                          value={formData.wantsRoommate ? 'yes' : 'no'}
-                          onValueChange={(value) => setFormData({ ...formData, wantsRoommate: value === 'yes' })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="yes">Yes</SelectItem>
-                            <SelectItem value="no">No</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="text-[#34495E] ml-13">
-                          {formData.wantsRoommate ? 'Yes' : 'No'}
-                        </p>
-                      )}
+                      <p className="text-[#34495E] pl-1">{f.wantsRoommate ? 'Yes' : 'No'}</p>
                     </div>
                   )}
 
-                  {/* Age */}
-                  {formData.age && (
+                  {f.age && (
                     <div className="bg-[#B19CD9]/5 rounded-lg p-4 border border-[#B19CD9]/20">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-10 h-10 bg-[#00A5A7]/10 rounded-full flex items-center justify-center">
@@ -393,7 +453,7 @@ export const Profile = () => {
                         </div>
                         <Label className="text-[#34495E]">Age</Label>
                       </div>
-                      <p className="text-[#34495E] ml-13">{formData.age} years old</p>
+                      <p className="text-[#34495E] pl-1">{f.age} years old</p>
                     </div>
                   )}
                 </div>
