@@ -37,7 +37,7 @@ export const AddHouse = () => {
     city: '',
     furnished: false,
     wifiAvailable: false,
-    genderPreference: '0',
+    genderPreference: '1',
   });
 
   const [rooms, setRooms] = useState<RoomInput[]>([
@@ -199,9 +199,8 @@ export const AddHouse = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="0">Any Gender</SelectItem>
-                      <SelectItem value="1">Male Only</SelectItem>
-                      <SelectItem value="2">Female Only</SelectItem>
+                      <SelectItem value="0">Male Only</SelectItem>
+                      <SelectItem value="1">Female Only</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
