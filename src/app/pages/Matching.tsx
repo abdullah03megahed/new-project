@@ -279,7 +279,7 @@ export const Matching = () => {
                   Sleep Code
                 </Label>
                 <Select
-                  value={formData.sleepCode}
+                  value={formData.sleepingHabits}
                   onValueChange={(value) => setFormData({ ...formData, sleepCode: value })}
                   required
                 >
@@ -287,9 +287,9 @@ export const Matching = () => {
                     <SelectValue placeholder="Select your sleep preference" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Early Bird">🌅 Early Bird</SelectItem>
-                    <SelectItem value="Night Owl">🌙 Night Owl</SelectItem>
-                    <SelectItem value="Flexible">⚡ Flexible</SelectItem>
+                    <SelectItem value="1">🌅 Early Bird</SelectItem>
+                    <SelectItem value="2">🌙 Night Owl</SelectItem>
+                    <SelectItem value="3">⚡ Flexible</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
