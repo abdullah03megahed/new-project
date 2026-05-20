@@ -12,6 +12,7 @@ import { Admin } from '../pages/Admin';
 import { Matching } from '../pages/Matching';
 import { ForgotPassword } from '../pages/ForgotPassword';  // ← fix path
 import { ResetPassword } from '../pages/ResetPassword';    // ← fix path
+import { CompleteProfile } from '../pages/CompleteProfile';
 
 export const router = createBrowserRouter([
   {
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       { path: 'matching', Component: Matching },
       { path: 'forgot-password', Component: ForgotPassword },  //  added
       { path: 'reset-password', Component: ResetPassword },    //  added
+      { path: 'complete-profile', Component: CompleteProfile },
     ],
   },
   {
