@@ -33,10 +33,14 @@ export const CompleteProfile = () => {
   // ── Not logged in at all → go to login ──────────────────────────────────────
   // We do NOT check user.type here intentionally — the type may not be set yet
   // right after signup due to React state timing
-  if (!user) {
-    navigate('/login');
-    return null;
-  }
+  import { useEffect } from 'react';
+    useEffect(() => {
+     if (!user) {
+      navigate('/login');
+     }
+   }, [user, navigate]);
+
+     if (!user) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
