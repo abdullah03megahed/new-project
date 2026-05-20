@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { api } from '../utils/api';
 import { useAuth } from '../utils/AuthContext';
@@ -30,17 +30,13 @@ export const CompleteProfile = () => {
     nationalId: '',
   });
 
-  // ── Not logged in at all → go to login ──────────────────────────────────────
-  // We do NOT check user.type here intentionally — the type may not be set yet
-  // right after signup due to React state timing
-  import { useEffect } from 'react';
-    useEffect(() => {
-     if (!user) {
+  useEffect(() => {
+    if (!user) {
       navigate('/login');
-     }
-   }, [user, navigate]);
+    }
+  }, [user, navigate]);
 
-     if (!user) return null;
+  if (!user) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,7 +99,6 @@ export const CompleteProfile = () => {
         </CardHeader>
 
         <CardContent>
-          {/* Step indicator */}
           <div className="flex items-center gap-2 mb-6 p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg">
             <div className="w-2 h-2 rounded-full bg-[#FFC759] flex-shrink-0" />
             <p className="text-sm text-[#34495E]">
