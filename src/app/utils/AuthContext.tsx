@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { api } from './api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,18 +32,13 @@ export interface User {
   sleepingHabits?: number;
 }
 
+// Only what POST /api/Authentication/Register accepts
 export interface SignupPayload {
   displayName: string;
   email: string;
   phoneNumber: string;
   password: string;
   role: 'Student' | 'LandLord';
-  gender?: string;
-  nationalId?: string;
-  dateOfBirth?: string;
-  address?: string;
-  faculty?: string;
-  lookingForRoommate?: boolean;
 }
 
 interface AuthResponse {
@@ -87,7 +82,6 @@ interface StudentProfile {
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   signup: (payload: SignupPayload) => Promise<void>;
@@ -95,8 +89,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function roleToType(role: string): 'student' | 'landlord' | 'admin' {
   const r = role.toLowerCase();
@@ -161,10 +153,7 @@ function mergeWithStudentProfile(base: User, p: StudentProfile): User {
   };
 }
 
-// ─── Provider ─────────────────────────────────────────────────────────────────
-
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Rehydrate synchronously from localStorage so user is never null on first render
   const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('user');
@@ -176,49 +165,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.getItem('token')
   );
 
-  // loading = true only while we're verifying / refreshing the session in the background
-  const [loading, setLoading] = useState(false);
-
-  // On mount: if a token exists but user is stale, quietly refresh the profile
-  useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    if (!storedToken || !storedUser) return;
-
-    const parsed: User = JSON.parse(storedUser);
-    if (parsed.id) return; // profile already fetched, nothing to do
-
-    // Profile ID missing — re-fetch silently in background
-    setLoading(true);
-    const refreshProfile = async () => {
-      try {
-        if (parsed.type === 'landlord') {
-          const profile = await api.get<LandlordProfile>(
-            `/LandLord/Email?email=${encodeURIComponent(parsed.email)}`
-          );
-          const updated = mergeWithLandlordProfile(parsed, profile);
-          setUser(updated);
-          localStorage.setItem('user', JSON.stringify(updated));
-        } else if (parsed.type === 'student') {
-          const profile = await api.get<StudentProfile>(
-            `/Student/Email?email=${encodeURIComponent(parsed.email)}`
-          );
-          const updated = mergeWithStudentProfile(parsed, profile);
-          setUser(updated);
-          localStorage.setItem('user', JSON.stringify(updated));
-        }
-      } catch {
-        // Keep the cached user — don't log out just because refresh failed
-      } finally {
-        setLoading(false);
-      }
-    };
-    refreshProfile();
-  }, []);
-
   const login = async (email: string, password: string) => {
     const data = await api.post<AuthResponse>('/Authentication/Login', { email, password });
 
+    // Store token first so profile fetches are authenticated
     localStorage.setItem('token', data.token);
     setToken(data.token);
 
@@ -226,12 +176,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     if (newUser.type === 'landlord') {
       try {
-        const profile = await api.get<LandlordProfile>(`/LandLord/Email?email=${encodeURIComponent(email)}`);
+        const profile = await api.get<LandlordProfile>(
+          `/LandLord/Email?email=${encodeURIComponent(email)}`
+        );
         newUser = mergeWithLandlordProfile(newUser, profile);
       } catch { /* continue with minimal data */ }
     } else if (newUser.type === 'student') {
       try {
-        const profile = await api.get<StudentProfile>(`/Student/Email?email=${encodeURIComponent(email)}`);
+        const profile = await api.get<StudentProfile>(
+          `/Student/Email?email=${encodeURIComponent(email)}`
+        );
         newUser = mergeWithStudentProfile(newUser, profile);
       } catch { /* continue with minimal data */ }
     }
@@ -265,7 +219,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, signup, updateUser }}>
+    <AuthContext.Provider value={{ user, token, login, logout, signup, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
