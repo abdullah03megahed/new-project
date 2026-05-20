@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api } from './api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -79,9 +79,11 @@ interface StudentProfile {
   phoneNumber?: string;
 }
 
+// ← loading is now included
 interface AuthContextType {
   user: User | null;
   token: string | null;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   signup: (payload: SignupPayload) => Promise<void>;
@@ -89,6 +91,8 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function roleToType(role: string): 'student' | 'landlord' | 'admin' {
   const r = role.toLowerCase();
@@ -123,7 +127,7 @@ function mergeWithLandlordProfile(base: User, p: LandlordProfile): User {
     id: String(p.id),
     firstName: p.firstName || base.firstName,
     lastName: p.lastName || base.lastName,
-    displayName: `${p.firstName} ${p.lastName}`,
+    displayName: `${p.firstName} ${p.lastName}`.trim() || base.displayName,
     nationalId: p.nationalId || '',
     dateOfBirth: p.birthDate || '',
     homeTown: p.homeTown || '',
@@ -137,7 +141,7 @@ function mergeWithStudentProfile(base: User, p: StudentProfile): User {
     id: String(p.id),
     firstName: p.firstName || base.firstName,
     lastName: p.lastName || base.lastName,
-    displayName: `${p.firstName} ${p.lastName}`,
+    displayName: `${p.firstName} ${p.lastName}`.trim() || base.displayName,
     nationalId: p.nationalCard || '',
     dateOfBirth: p.birthDate || '',
     homeTown: p.homeTown || '',
@@ -153,7 +157,10 @@ function mergeWithStudentProfile(base: User, p: StudentProfile): User {
   };
 }
 
+// ─── Provider ─────────────────────────────────────────────────────────────────
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // Rehydrate synchronously — user is never null on first render if already logged in
   const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('user');
@@ -165,10 +172,51 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.getItem('token')
   );
 
+  // loading = true only while silently refreshing a stale profile in the background
+  const [loading, setLoading] = useState(false);
+
+  // On mount: if token exists but profile id is missing, re-fetch silently
+  useEffect(() => {
+    const storedToken = localStorage.getItem('token');
+    const storedUser = localStorage.getItem('user');
+    if (!storedToken || !storedUser) return;
+
+    let parsed: User;
+    try { parsed = JSON.parse(storedUser); } catch { return; }
+
+    // Profile already has an id — nothing to refresh
+    if (parsed.id) return;
+
+    setLoading(true);
+    const refresh = async () => {
+      try {
+        if (parsed.type === 'landlord') {
+          const profile = await api.get<LandlordProfile>(
+            `/LandLord/Email?email=${encodeURIComponent(parsed.email)}`
+          );
+          const updated = mergeWithLandlordProfile(parsed, profile);
+          setUser(updated);
+          localStorage.setItem('user', JSON.stringify(updated));
+        } else if (parsed.type === 'student') {
+          const profile = await api.get<StudentProfile>(
+            `/Student/Email?email=${encodeURIComponent(parsed.email)}`
+          );
+          const updated = mergeWithStudentProfile(parsed, profile);
+          setUser(updated);
+          localStorage.setItem('user', JSON.stringify(updated));
+        }
+      } catch {
+        // Keep cached user — don't log out just because refresh failed
+      } finally {
+        setLoading(false);
+      }
+    };
+    refresh();
+  }, []);
+
   const login = async (email: string, password: string) => {
     const data = await api.post<AuthResponse>('/Authentication/Login', { email, password });
 
-    // Store token first so profile fetches are authenticated
     localStorage.setItem('token', data.token);
     setToken(data.token);
 
@@ -219,7 +267,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, signup, updateUser }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, signup, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
