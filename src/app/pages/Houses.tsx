@@ -47,7 +47,7 @@ export const Houses = () => {
   const [searchParams] = useSearchParams();
   const [city, setCity] = useState(searchParams.get('search') || '');
   const [genderPreference, setGenderPreference] = useState('0');
-  const [sortingOption, setSortingOption] = useState('3');
+  const [sortingOption, setSortingOption] = useState('1');
   const [priceRange, setPriceRange] = useState([
     parseInt(searchParams.get('minPrice') || '0'),
     parseInt(searchParams.get('maxPrice') || '10000'),
