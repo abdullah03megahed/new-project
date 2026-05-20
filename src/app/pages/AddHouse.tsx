@@ -114,7 +114,7 @@ export const AddHouse = () => {
       });
 
       if (editId) {
-        await api.upload<any>(`/Listing/${editId}`, fd);
+        await api.upload.put<any>(`/Listing/${editId}`, fd);
         toast.success('Property updated successfully!');
       } else {
         await api.upload<any>('/Listing', fd);
