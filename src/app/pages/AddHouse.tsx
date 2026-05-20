@@ -114,12 +114,12 @@ export const AddHouse = () => {
       });
 
       if (editId) {
-        await api.upload.put<any>(`/Listing/${editId}`, fd);
-        toast.success('Property updated successfully!');
-      } else {
-        await api.upload<any>('/Listing', fd);
-        toast.success('Property added successfully!');
-      }
+         await api.uploadPut<any>(`/Listing/${editId}`, fd);  // ← PUT not POST
+         toast.success('Property updated successfully!');
+         } else {
+         await api.upload<any>('/Listing', fd);
+         toast.success('Property added successfully!');
+          }
       navigate('/dashboard');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to save listing.';
