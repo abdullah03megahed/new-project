@@ -32,9 +32,7 @@ export const Home = () => {
     const fetchListings = async () => {
       try {
         // Fetch latest listings (sorted by publishedAt = option 3)
-        const latest = await api.get<PaginatedListings>(
-          '/Listing?SortingOption=3&PageSize=8&PageIndex=1'
-        );
+        const latest = await api.get<PaginatedListings>('/Listing?SortingOption=1&PageSize=8&PageIndex=1');
         setLatestListings(latest.data || []);
 
         // Fetch first page as "featured" (no featured flag in API, use first 6)
