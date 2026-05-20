@@ -56,9 +56,7 @@ export const SignUp = () => {
       });
       // Small delay so AuthContext finishes setting user state before the next
       // page reads it
-      await new Promise(res => setTimeout(res, 100));
-      console.log('user type after signup:', localStorage.getItem('user'));
-      navigate('/complete-profile');
+      navigate('/complete-profile', { replace: true });
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Signup failed.');
     } finally {
