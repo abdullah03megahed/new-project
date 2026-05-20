@@ -30,12 +30,36 @@ export const CompleteProfile = () => {
     nationalId: '',
   });
 
+  // If not a landlord, send them away
+  if (!user || user.type !== 'landlord') {
+    navigate('/');
+    return null;
+  }
+
+  // If landlord already has nationalId, profile is done — go to dashboard
+  if (user.nationalId) {
+    navigate('/dashboard');
+    return null;
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!formData.homeTown) {
+      toast.error('Please select your home town.');
+      return;
+    }
+    if (!formData.nationalId.trim()) {
+      toast.error('National ID is required.');
+      return;
+    }
+    if (!formData.birthDate) {
+      toast.error('Date of birth is required.');
+      return;
+    }
+
     setLoading(true);
     try {
-      // POST /api/LandLord/CompleteProfile
-      // Body: { firstName, lastName, birthDate, homeTown, nationalId }
       await api.post('/LandLord/CompleteProfile', {
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -53,7 +77,7 @@ export const CompleteProfile = () => {
         nationalId: formData.nationalId,
       });
 
-      toast.success('Profile completed successfully!');
+      toast.success('Profile completed! You can now add properties.');
       navigate('/dashboard');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to complete profile. Please try again.';
@@ -73,34 +97,75 @@ export const CompleteProfile = () => {
             </div>
           </div>
           <CardTitle className="text-[#34495E]">Complete Your Profile</CardTitle>
-          <CardDescription>A few more details to set up your landlord account</CardDescription>
+          <CardDescription>
+            You need to complete your profile before you can add properties
+          </CardDescription>
         </CardHeader>
+
         <CardContent>
+          {/* Progress indicator */}
+          <div className="flex items-center gap-2 mb-6 p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg">
+            <div className="w-2 h-2 rounded-full bg-[#FFC759]" />
+            <p className="text-sm text-[#34495E]">
+              Step 2 of 2 — Complete your landlord profile to start listing properties
+            </p>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>
-                <Input id="firstName" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required className="border-[#00A5A7]/20" />
+                <Input
+                  id="firstName"
+                  value={formData.firstName}
+                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                  required
+                  className="border-[#00A5A7]/20"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="lastName">Last Name</Label>
-                <Input id="lastName" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required className="border-[#00A5A7]/20" />
+                <Input
+                  id="lastName"
+                  value={formData.lastName}
+                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                  required
+                  className="border-[#00A5A7]/20"
+                />
               </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="nationalId">National ID</Label>
-              <Input id="nationalId" placeholder="Enter your national ID number" value={formData.nationalId} onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })} required className="border-[#00A5A7]/20" />
+              <Input
+                id="nationalId"
+                placeholder="Enter your national ID number"
+                value={formData.nationalId}
+                onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })}
+                required
+                className="border-[#00A5A7]/20"
+              />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="birthDate">Date of Birth</Label>
-              <Input id="birthDate" type="date" value={formData.birthDate} onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })} required max={new Date().toISOString().split('T')[0]} className="border-[#00A5A7]/20" />
+              <Input
+                id="birthDate"
+                type="date"
+                value={formData.birthDate}
+                onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
+                required
+                max={new Date().toISOString().split('T')[0]}
+                className="border-[#00A5A7]/20"
+              />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="homeTown">Home Town</Label>
-              <Select value={formData.homeTown} onValueChange={(v) => setFormData({ ...formData, homeTown: v })}>
+              <Select
+                value={formData.homeTown}
+                onValueChange={(v) => setFormData({ ...formData, homeTown: v })}
+              >
                 <SelectTrigger className="border-[#00A5A7]/20">
                   <SelectValue placeholder="Select your governorate" />
                 </SelectTrigger>
@@ -112,15 +177,15 @@ export const CompleteProfile = () => {
               </Select>
             </div>
 
-            <Button type="submit" disabled={loading || !formData.homeTown} className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
-              {loading ? 'Saving...' : 'Complete Profile'}
+            <Button
+              type="submit"
+              disabled={loading || !formData.homeTown || !formData.nationalId || !formData.birthDate}
+              className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
+            >
+              {loading ? 'Saving...' : 'Complete Profile & Go to Dashboard'}
             </Button>
 
-            <div className="text-center">
-              <button type="button" onClick={() => navigate('/dashboard')} className="text-[#717182] text-sm hover:underline">
-                Skip for now
-              </button>
-            </div>
+            {/* No skip button — profile is required to add properties */}
           </form>
         </CardContent>
       </Card>
