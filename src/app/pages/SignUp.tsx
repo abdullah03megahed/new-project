@@ -13,22 +13,12 @@ export const SignUp = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  // Student fields — only what Register API accepts
   const [studentData, setStudentData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
-    phoneNumber: '',
+    firstName: '', lastName: '', email: '', password: '', phoneNumber: '',
   });
 
-  // Landlord fields — only what Register API accepts
   const [landlordData, setLandlordData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
-    phoneNumber: '',
+    firstName: '', lastName: '', email: '', password: '', phoneNumber: '',
   });
 
   const handleStudentSubmit = async (e: React.FormEvent) => {
@@ -42,11 +32,9 @@ export const SignUp = () => {
         password: studentData.password,
         role: 'Student',
       });
-      // Go to Matching page which handles Student CompleteProfile
-      navigate('/matching');
+      navigate('/matching'); // → Student CompleteProfile
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Signup failed. Please try again.';
-      toast.error(message);
+      toast.error(err instanceof Error ? err.message : 'Signup failed.');
     } finally {
       setLoading(false);
     }
@@ -63,11 +51,9 @@ export const SignUp = () => {
         password: landlordData.password,
         role: 'LandLord',
       });
-      // Go to CompleteProfile page which handles Landlord CompleteProfile
-      navigate('/complete-profile');
+      navigate('/complete-profile'); // → Landlord CompleteProfile
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Signup failed. Please try again.';
-      toast.error(message);
+      toast.error(err instanceof Error ? err.message : 'Signup failed.');
     } finally {
       setLoading(false);
     }
@@ -88,143 +74,67 @@ export const SignUp = () => {
         <CardContent>
           <Tabs defaultValue="student" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="student" className="data-[state=active]:bg-[#00A5A7] data-[state=active]:text-white">
-                Student
-              </TabsTrigger>
-              <TabsTrigger value="landlord" className="data-[state=active]:bg-[#00A5A7] data-[state=active]:text-white">
-                Landlord
-              </TabsTrigger>
+              <TabsTrigger value="student" className="data-[state=active]:bg-[#00A5A7] data-[state=active]:text-white">Student</TabsTrigger>
+              <TabsTrigger value="landlord" className="data-[state=active]:bg-[#00A5A7] data-[state=active]:text-white">Landlord</TabsTrigger>
             </TabsList>
 
-            {/* ── Student Form ── */}
+            {/* Student Form */}
             <TabsContent value="student">
               <form onSubmit={handleStudentSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="s-firstName">First Name</Label>
-                    <Input
-                      id="s-firstName"
-                      value={studentData.firstName}
-                      onChange={(e) => setStudentData({ ...studentData, firstName: e.target.value })}
-                      required
-                    />
+                    <Input id="s-firstName" value={studentData.firstName} onChange={(e) => setStudentData({ ...studentData, firstName: e.target.value })} required />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="s-lastName">Last Name</Label>
-                    <Input
-                      id="s-lastName"
-                      value={studentData.lastName}
-                      onChange={(e) => setStudentData({ ...studentData, lastName: e.target.value })}
-                      required
-                    />
+                    <Input id="s-lastName" value={studentData.lastName} onChange={(e) => setStudentData({ ...studentData, lastName: e.target.value })} required />
                   </div>
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="s-email">Email</Label>
-                  <Input
-                    id="s-email"
-                    type="email"
-                    value={studentData.email}
-                    onChange={(e) => setStudentData({ ...studentData, email: e.target.value })}
-                    required
-                  />
+                  <Input id="s-email" type="email" value={studentData.email} onChange={(e) => setStudentData({ ...studentData, email: e.target.value })} required />
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="s-phone">Phone Number</Label>
-                  <Input
-                    id="s-phone"
-                    value={studentData.phoneNumber}
-                    onChange={(e) => setStudentData({ ...studentData, phoneNumber: e.target.value })}
-                    required
-                  />
+                  <Input id="s-phone" value={studentData.phoneNumber} onChange={(e) => setStudentData({ ...studentData, phoneNumber: e.target.value })} required />
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="s-password">Password</Label>
-                  <Input
-                    id="s-password"
-                    type="password"
-                    placeholder="Min 8 chars, include uppercase & number"
-                    value={studentData.password}
-                    onChange={(e) => setStudentData({ ...studentData, password: e.target.value })}
-                    required
-                  />
+                  <Input id="s-password" type="password" placeholder="Min 8 chars, include uppercase & number" value={studentData.password} onChange={(e) => setStudentData({ ...studentData, password: e.target.value })} required />
                 </div>
-
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
-                >
+                <Button type="submit" disabled={loading} className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
                   {loading ? 'Creating account...' : 'Sign Up as Student'}
                 </Button>
               </form>
             </TabsContent>
 
-            {/* ── Landlord Form ── */}
+            {/* Landlord Form */}
             <TabsContent value="landlord">
               <form onSubmit={handleLandlordSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="l-firstName">First Name</Label>
-                    <Input
-                      id="l-firstName"
-                      value={landlordData.firstName}
-                      onChange={(e) => setLandlordData({ ...landlordData, firstName: e.target.value })}
-                      required
-                    />
+                    <Input id="l-firstName" value={landlordData.firstName} onChange={(e) => setLandlordData({ ...landlordData, firstName: e.target.value })} required />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="l-lastName">Last Name</Label>
-                    <Input
-                      id="l-lastName"
-                      value={landlordData.lastName}
-                      onChange={(e) => setLandlordData({ ...landlordData, lastName: e.target.value })}
-                      required
-                    />
+                    <Input id="l-lastName" value={landlordData.lastName} onChange={(e) => setLandlordData({ ...landlordData, lastName: e.target.value })} required />
                   </div>
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="l-email">Email</Label>
-                  <Input
-                    id="l-email"
-                    type="email"
-                    value={landlordData.email}
-                    onChange={(e) => setLandlordData({ ...landlordData, email: e.target.value })}
-                    required
-                  />
+                  <Input id="l-email" type="email" value={landlordData.email} onChange={(e) => setLandlordData({ ...landlordData, email: e.target.value })} required />
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="l-phone">Phone Number</Label>
-                  <Input
-                    id="l-phone"
-                    value={landlordData.phoneNumber}
-                    onChange={(e) => setLandlordData({ ...landlordData, phoneNumber: e.target.value })}
-                    required
-                  />
+                  <Input id="l-phone" value={landlordData.phoneNumber} onChange={(e) => setLandlordData({ ...landlordData, phoneNumber: e.target.value })} required />
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="l-password">Password</Label>
-                  <Input
-                    id="l-password"
-                    type="password"
-                    placeholder="Min 8 chars, include uppercase & number"
-                    value={landlordData.password}
-                    onChange={(e) => setLandlordData({ ...landlordData, password: e.target.value })}
-                    required
-                  />
+                  <Input id="l-password" type="password" placeholder="Min 8 chars, include uppercase & number" value={landlordData.password} onChange={(e) => setLandlordData({ ...landlordData, password: e.target.value })} required />
                 </div>
-
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
-                >
+                <Button type="submit" disabled={loading} className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
                   {loading ? 'Creating account...' : 'Sign Up as Landlord'}
                 </Button>
               </form>
@@ -234,9 +144,7 @@ export const SignUp = () => {
           <div className="text-center mt-4">
             <p className="text-[#717182]">
               Already have an account?{' '}
-              <Link to="/login" className="text-[#00A5A7] hover:underline">
-                Sign in
-              </Link>
+              <Link to="/login" className="text-[#00A5A7] hover:underline">Sign in</Link>
             </p>
           </div>
         </CardContent>
