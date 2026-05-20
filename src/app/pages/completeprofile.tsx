@@ -30,13 +30,13 @@ export const CompleteProfile = () => {
     nationalId: '',
   });
 
-  // If not a landlord, send them away
+  // Only landlords should be here
   if (!user || user.type !== 'landlord') {
     navigate('/');
     return null;
   }
 
-  // If landlord already has nationalId, profile is done — go to dashboard
+  // If profile already completed, skip to dashboard
   if (user.nationalId) {
     navigate('/dashboard');
     return null;
@@ -105,7 +105,7 @@ export const CompleteProfile = () => {
         <CardContent>
           {/* Progress indicator */}
           <div className="flex items-center gap-2 mb-6 p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg">
-            <div className="w-2 h-2 rounded-full bg-[#FFC759]" />
+            <div className="w-2 h-2 rounded-full bg-[#FFC759] flex-shrink-0" />
             <p className="text-sm text-[#34495E]">
               Step 2 of 2 — Complete your landlord profile to start listing properties
             </p>
@@ -179,13 +179,11 @@ export const CompleteProfile = () => {
 
             <Button
               type="submit"
-              disabled={loading || !formData.homeTown || !formData.nationalId || !formData.birthDate}
+              disabled={loading || !formData.homeTown || !formData.nationalId.trim() || !formData.birthDate}
               className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
             >
               {loading ? 'Saving...' : 'Complete Profile & Go to Dashboard'}
             </Button>
-
-            {/* No skip button — profile is required to add properties */}
           </form>
         </CardContent>
       </Card>
