@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../utils/AuthContext';
 import { api } from '../utils/api';
@@ -20,7 +20,6 @@ const egyptianGovernorates = [
   'South Sinai', 'Matruh', 'New Valley',
 ];
 
-// Backend enum values — must match GenderDto and SleepingHabitsDto
 const GENDER_MAP: Record<string, number> = { male: 1, female: 2 };
 const SLEEP_MAP: Record<string, number> = { 'Early Bird': 1, 'Night Owl': 2, 'Flexible': 3 };
 
@@ -45,16 +44,20 @@ export const Matching = () => {
     bio: '',
   });
 
-  if (!user || user.type !== 'student') {
-    navigate('/');
-    return null;
-  }
+  useEffect(() => {
+    if (!user) {
+      navigate('/login');
+    } else if (user.type !== 'student') {
+      navigate('/');
+    }
+  }, [user, navigate]);
+
+  if (!user || user.type !== 'student') return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // POST /api/Student/CompleteProfile
       await api.post('/Student/CompleteProfile', {
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -71,7 +74,6 @@ export const Matching = () => {
         bio: formData.bio,
       });
 
-      // Update local user state
       updateUser({
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -116,7 +118,6 @@ export const Matching = () => {
 
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Name */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>First Name</Label>
@@ -128,12 +129,11 @@ export const Matching = () => {
                 </div>
               </div>
 
-              {/* Gender */}
               <div className="space-y-2">
                 <Label className="flex items-center gap-2 text-[#34495E]">
                   <Users className="w-4 h-4 text-[#00A5A7]" />Gender
                 </Label>
-                <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })} required>
+                <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
                   <SelectTrigger className="h-12 border-[#00A5A7]/20"><SelectValue placeholder="Select your gender" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="male">Male</SelectItem>
@@ -142,18 +142,16 @@ export const Matching = () => {
                 </Select>
               </div>
 
-              {/* Date of Birth */}
               <div className="space-y-2">
                 <Label>Date of Birth</Label>
                 <Input type="date" value={formData.birthDate} onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })} required className="h-12 border-[#00A5A7]/20" max={new Date().toISOString().split('T')[0]} />
               </div>
 
-              {/* Hometown */}
               <div className="space-y-2">
                 <Label className="flex items-center gap-2 text-[#34495E]">
                   <Home className="w-4 h-4 text-[#00A5A7]" />Hometown
                 </Label>
-                <Select value={formData.homeTown} onValueChange={(v) => setFormData({ ...formData, homeTown: v })} required>
+                <Select value={formData.homeTown} onValueChange={(v) => setFormData({ ...formData, homeTown: v })}>
                   <SelectTrigger className="h-12 border-[#00A5A7]/20"><SelectValue placeholder="Select your governorate" /></SelectTrigger>
                   <SelectContent className="max-h-[300px]">
                     {egyptianGovernorates.map((gov) => (
@@ -163,25 +161,21 @@ export const Matching = () => {
                 </Select>
               </div>
 
-              {/* Faculty */}
               <div className="space-y-2">
                 <Label>Faculty / Study Field</Label>
                 <Input placeholder="e.g., Engineering, Medicine, Business" value={formData.facultyField} onChange={(e) => setFormData({ ...formData, facultyField: e.target.value })} required className="h-12 border-[#00A5A7]/20" />
               </div>
 
-              {/* National Card */}
               <div className="space-y-2">
                 <Label>National ID Number</Label>
                 <Input placeholder="Enter your national ID" value={formData.nationalCard} onChange={(e) => setFormData({ ...formData, nationalCard: e.target.value })} required className="h-12 border-[#00A5A7]/20" />
               </div>
 
-              {/* University Card */}
               <div className="space-y-2">
                 <Label>University Card Number <span className="text-[#717182] text-sm">(Optional)</span></Label>
                 <Input placeholder="Enter your university card number" value={formData.universityCard} onChange={(e) => setFormData({ ...formData, universityCard: e.target.value })} className="h-12 border-[#00A5A7]/20" />
               </div>
 
-              {/* Budget */}
               <div className="space-y-2">
                 <Label>Budget Range (EGP/month)</Label>
                 <div className="grid grid-cols-2 gap-4">
@@ -190,7 +184,6 @@ export const Matching = () => {
                 </div>
               </div>
 
-              {/* Looking for Roommate */}
               <div className="space-y-2">
                 <Label>Do you want a roommate?</Label>
                 <RadioGroup value={formData.lookingForRoommate ? 'yes' : 'no'} onValueChange={(v) => setFormData({ ...formData, lookingForRoommate: v === 'yes' })} className="flex gap-6">
@@ -205,12 +198,11 @@ export const Matching = () => {
                 </RadioGroup>
               </div>
 
-              {/* Sleep Habits */}
               <div className="space-y-2">
                 <Label className="flex items-center gap-2 text-[#34495E]">
                   <Moon className="w-4 h-4 text-[#00A5A7]" />Sleep Habits
                 </Label>
-                <Select value={formData.sleepingHabits} onValueChange={(v) => setFormData({ ...formData, sleepingHabits: v })} required>
+                <Select value={formData.sleepingHabits} onValueChange={(v) => setFormData({ ...formData, sleepingHabits: v })}>
                   <SelectTrigger className="h-12 border-[#00A5A7]/20"><SelectValue placeholder="Select your sleep preference" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Early Bird">🌅 Early Bird</SelectItem>
@@ -220,7 +212,6 @@ export const Matching = () => {
                 </Select>
               </div>
 
-              {/* Bio */}
               <div className="space-y-2">
                 <Label>Bio <span className="text-[#717182] text-sm">(Optional)</span></Label>
                 <Textarea placeholder="Tell potential roommates about yourself..." value={formData.bio} onChange={(e) => setFormData({ ...formData, bio: e.target.value })} rows={3} className="border-[#00A5A7]/20" />
