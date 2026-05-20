@@ -34,10 +34,12 @@ export const CompleteProfile = () => {
     e.preventDefault();
     setLoading(true);
     try {
+      // POST /api/LandLord/CompleteProfile
+      // Body: { firstName, lastName, birthDate, homeTown, nationalId }
       await api.post('/LandLord/CompleteProfile', {
         firstName: formData.firstName,
         lastName: formData.lastName,
-        birthDate: formData.birthDate,
+        birthDate: new Date(formData.birthDate).toISOString(),
         homeTown: formData.homeTown,
         nationalId: formData.nationalId,
       });
@@ -52,9 +54,9 @@ export const CompleteProfile = () => {
       });
 
       toast.success('Profile completed successfully!');
-      navigate('/');
+      navigate('/dashboard');
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to complete profile.';
+      const message = err instanceof Error ? err.message : 'Failed to complete profile. Please try again.';
       toast.error(message);
     } finally {
       setLoading(false);
@@ -71,68 +73,34 @@ export const CompleteProfile = () => {
             </div>
           </div>
           <CardTitle className="text-[#34495E]">Complete Your Profile</CardTitle>
-          <CardDescription>
-            A few more details to set up your landlord account
-          </CardDescription>
+          <CardDescription>A few more details to set up your landlord account</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>
-                <Input
-                  id="firstName"
-                  value={formData.firstName}
-                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                  required
-                  className="border-[#00A5A7]/20"
-                />
+                <Input id="firstName" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required className="border-[#00A5A7]/20" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  value={formData.lastName}
-                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                  required
-                  className="border-[#00A5A7]/20"
-                />
+                <Input id="lastName" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required className="border-[#00A5A7]/20" />
               </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="nationalId">National ID</Label>
-              <Input
-                id="nationalId"
-                placeholder="Enter your national ID number"
-                value={formData.nationalId}
-                onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })}
-                required
-                className="border-[#00A5A7]/20"
-              />
+              <Input id="nationalId" placeholder="Enter your national ID number" value={formData.nationalId} onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })} required className="border-[#00A5A7]/20" />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="birthDate">Date of Birth</Label>
-              <Input
-                id="birthDate"
-                type="date"
-                value={formData.birthDate}
-                onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
-                required
-                max={new Date().toISOString().split('T')[0]}
-                className="border-[#00A5A7]/20"
-              />
+              <Input id="birthDate" type="date" value={formData.birthDate} onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })} required max={new Date().toISOString().split('T')[0]} className="border-[#00A5A7]/20" />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="homeTown">Home Town</Label>
-              <Select
-                value={formData.homeTown}
-                onValueChange={(v) => setFormData({ ...formData, homeTown: v })}
-                required
-              >
+              <Select value={formData.homeTown} onValueChange={(v) => setFormData({ ...formData, homeTown: v })}>
                 <SelectTrigger className="border-[#00A5A7]/20">
                   <SelectValue placeholder="Select your governorate" />
                 </SelectTrigger>
@@ -144,20 +112,12 @@ export const CompleteProfile = () => {
               </Select>
             </div>
 
-            <Button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
-            >
+            <Button type="submit" disabled={loading || !formData.homeTown} className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
               {loading ? 'Saving...' : 'Complete Profile'}
             </Button>
 
             <div className="text-center">
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="text-[#717182] text-sm hover:underline"
-              >
+              <button type="button" onClick={() => navigate('/dashboard')} className="text-[#717182] text-sm hover:underline">
                 Skip for now
               </button>
             </div>
