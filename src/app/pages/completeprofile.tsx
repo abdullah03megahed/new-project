@@ -20,7 +20,7 @@ const egyptianGovernorates = [
 export const CompleteProfile = () => {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState({
     firstName: user?.firstName || '',
@@ -30,15 +30,11 @@ export const CompleteProfile = () => {
     nationalId: '',
   });
 
-  // Only landlords should be here
-  if (!user || user.type !== 'landlord') {
-    navigate('/');
-    return null;
-  }
-
-  // If profile already completed, skip to dashboard
-  if (user.nationalId) {
-    navigate('/dashboard');
+  // ── Not logged in at all → go to login ──────────────────────────────────────
+  // We do NOT check user.type here intentionally — the type may not be set yet
+  // right after signup due to React state timing
+  if (!user) {
+    navigate('/login');
     return null;
   }
 
@@ -58,7 +54,7 @@ export const CompleteProfile = () => {
       return;
     }
 
-    setLoading(true);
+    setSaving(true);
     try {
       await api.post('/LandLord/CompleteProfile', {
         firstName: formData.firstName,
@@ -83,7 +79,7 @@ export const CompleteProfile = () => {
       const message = err instanceof Error ? err.message : 'Failed to complete profile. Please try again.';
       toast.error(message);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -103,7 +99,7 @@ export const CompleteProfile = () => {
         </CardHeader>
 
         <CardContent>
-          {/* Progress indicator */}
+          {/* Step indicator */}
           <div className="flex items-center gap-2 mb-6 p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg">
             <div className="w-2 h-2 rounded-full bg-[#FFC759] flex-shrink-0" />
             <p className="text-sm text-[#34495E]">
@@ -179,10 +175,10 @@ export const CompleteProfile = () => {
 
             <Button
               type="submit"
-              disabled={loading || !formData.homeTown || !formData.nationalId.trim() || !formData.birthDate}
+              disabled={saving || !formData.homeTown || !formData.nationalId.trim() || !formData.birthDate}
               className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
             >
-              {loading ? 'Saving...' : 'Complete Profile & Go to Dashboard'}
+              {saving ? 'Saving...' : 'Complete Profile & Go to Dashboard'}
             </Button>
           </form>
         </CardContent>
