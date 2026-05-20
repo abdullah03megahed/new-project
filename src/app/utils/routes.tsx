@@ -12,7 +12,7 @@ import { Admin } from '../pages/Admin';
 import { Matching } from '../pages/Matching';
 import { ForgotPassword } from '../pages/ForgotPassword';  // ← fix path
 import { ResetPassword } from '../pages/ResetPassword';    // ← fix path
-import { CompleteProfile } from '../pages/CompleteProfile';
+import { completeprofile } from '../pages/completeprofile';
 
 export const router = createBrowserRouter([
   {
