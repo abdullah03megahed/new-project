@@ -4,7 +4,8 @@ import { api } from '../utils/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Users, Home, BookOpen, Bed, MapPin, Trash2, Flag } from 'lucide-react';
+import { Input } from '../components/ui/input';
+import { Users, Home, BookOpen, Bed, MapPin, Trash2, Flag, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -23,6 +24,21 @@ interface StudentItem { id: number; firstName: string; lastName: string; email: 
 interface ReportItem { reporterId: string; reportedId: string; reason: string; status: number; type: number; createdAt: string; }
 interface PaginatedReports { pageIndex: number; pageSize: number; count: number; data: ReportItem[]; }
 
+interface LandlordSearchResult {
+  id: number; firstName: string; lastName: string;
+  birthDate: string; nationalId: string; homeTown: string;
+  email: string; phoneNumber: string;
+}
+interface StudentSearchResult {
+  id: number; firstName: string; lastName: string;
+  birthDate: string; age: number; homeTown: string;
+  gender: number; bio: string; facultyField: string;
+  lookingForRoommate: boolean; sleepingHabits: number;
+  minBudget: number; maxBudget: number;
+  nationalCard: string; universityCard: string;
+  email: string; phoneNumber: string;
+}
+
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 
 export const Admin = () => {
@@ -33,6 +49,13 @@ export const Admin = () => {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'landlords' | 'students' | 'reports'>('overview');
   const [loading, setLoading] = useState(true);
+
+  // ── Search state ─────────────────────────────────────────────────────────────
+  const [studentSearch, setStudentSearch] = useState('');
+  const [landlordSearch, setLandlordSearch] = useState('');
+  const [studentResult, setStudentResult] = useState<StudentSearchResult | null>(null);
+  const [landlordResult, setLandlordResult] = useState<LandlordSearchResult | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   // ── Role guard ──────────────────────────────────────────────────────────────
   if (!user || user.type !== 'admin') {
@@ -64,6 +87,34 @@ export const Admin = () => {
     };
     fetchAll();
   }, []);
+
+  const searchStudent = async () => {
+    if (!studentSearch.trim()) return;
+    setSearchLoading(true);
+    setStudentResult(null);
+    try {
+      const data = await api.get<StudentSearchResult>(`/Student/Email?email=${encodeURIComponent(studentSearch.trim())}`);
+      setStudentResult(data);
+    } catch {
+      toast.error('Student not found.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const searchLandlord = async () => {
+    if (!landlordSearch.trim()) return;
+    setSearchLoading(true);
+    setLandlordResult(null);
+    try {
+      const data = await api.get<LandlordSearchResult>(`/LandLord/Email?email=${encodeURIComponent(landlordSearch.trim())}`);
+      setLandlordResult(data);
+    } catch {
+      toast.error('Landlord not found.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
 
   const handleDeleteLandlord = async (id: number) => {
     try {
@@ -113,7 +164,13 @@ export const Admin = () => {
         {/* Tabs */}
         <div className="flex gap-2 mb-8 border-b overflow-x-auto">
           {(['overview', 'landlords', 'students', 'reports'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
+            <button key={tab} onClick={() => {
+              setActiveTab(tab);
+              setStudentResult(null);
+              setLandlordResult(null);
+              setStudentSearch('');
+              setLandlordSearch('');
+            }}
               className={`px-6 py-3 capitalize font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
                 activeTab === tab ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'
               }`}>
@@ -193,6 +250,47 @@ export const Admin = () => {
         {activeTab === 'landlords' && (
           <div>
             <h2 className="text-[#34495E] mb-4">All Landlords ({landlords.length})</h2>
+
+            {/* Search bar */}
+            <div className="flex gap-2 mb-4">
+              <Input
+                placeholder="Search landlord by email..."
+                value={landlordSearch}
+                onChange={(e) => { setLandlordSearch(e.target.value); setLandlordResult(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && searchLandlord()}
+                className="border-[#00A5A7]/20 focus:border-[#00A5A7]"
+              />
+              <Button
+                onClick={searchLandlord}
+                disabled={searchLoading || !landlordSearch.trim()}
+                className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white shrink-0"
+              >
+                <Search className="w-4 h-4 mr-1" />
+                Search
+              </Button>
+            </div>
+
+            {/* Search result */}
+            {landlordResult && (
+              <Card className="mb-4 border-[#00A5A7]/30 bg-[#00A5A7]/5">
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-1 text-sm">
+                      <p className="text-[#34495E] font-semibold">{landlordResult.firstName} {landlordResult.lastName}</p>
+                      <p className="text-[#717182]">{landlordResult.email}</p>
+                      <p className="text-[#717182]">{landlordResult.phoneNumber}</p>
+                      {landlordResult.homeTown && <p className="text-[#717182]">Hometown: {landlordResult.homeTown}</p>}
+                      {landlordResult.nationalId && <p className="text-[#717182]">National ID: {landlordResult.nationalId}</p>}
+                      {landlordResult.birthDate && (
+                        <p className="text-[#717182]">DOB: {new Date(landlordResult.birthDate).toLocaleDateString()}</p>
+                      )}
+                    </div>
+                    <Badge className="bg-[#00A5A7] text-white border-0 text-xs">ID #{landlordResult.id}</Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <div className="space-y-3">
               {landlords.map(landlord => (
                 <Card key={landlord.id}>
@@ -231,6 +329,53 @@ export const Admin = () => {
         {activeTab === 'students' && (
           <div>
             <h2 className="text-[#34495E] mb-4">All Students ({students.length})</h2>
+
+            {/* Search bar */}
+            <div className="flex gap-2 mb-4">
+              <Input
+                placeholder="Search student by email..."
+                value={studentSearch}
+                onChange={(e) => { setStudentSearch(e.target.value); setStudentResult(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && searchStudent()}
+                className="border-[#00A5A7]/20 focus:border-[#00A5A7]"
+              />
+              <Button
+                onClick={searchStudent}
+                disabled={searchLoading || !studentSearch.trim()}
+                className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white shrink-0"
+              >
+                <Search className="w-4 h-4 mr-1" />
+                Search
+              </Button>
+            </div>
+
+            {/* Search result */}
+            {studentResult && (
+              <Card className="mb-4 border-[#00A5A7]/30 bg-[#00A5A7]/5">
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-1 text-sm">
+                      <p className="text-[#34495E] font-semibold">{studentResult.firstName} {studentResult.lastName}</p>
+                      <p className="text-[#717182]">{studentResult.email}</p>
+                      <p className="text-[#717182]">{studentResult.phoneNumber}</p>
+                      {studentResult.facultyField && <p className="text-[#717182]">Faculty: {studentResult.facultyField}</p>}
+                      {studentResult.homeTown && <p className="text-[#717182]">Hometown: {studentResult.homeTown}</p>}
+                      {(studentResult.minBudget > 0 || studentResult.maxBudget > 0) && (
+                        <p className="text-[#717182]">Budget: EGP {studentResult.minBudget.toLocaleString()} – {studentResult.maxBudget.toLocaleString()}</p>
+                      )}
+                      {studentResult.bio && <p className="text-[#717182] italic">"{studentResult.bio}"</p>}
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <Badge variant="outline" className="text-xs">ID #{studentResult.id}</Badge>
+                      {studentResult.lookingForRoommate && (
+                        <Badge className="bg-[#B19CD9] text-white border-0 text-xs">Roommate</Badge>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <div className="space-y-3">
               {students.map(student => (
                 <Card key={student.id}>
