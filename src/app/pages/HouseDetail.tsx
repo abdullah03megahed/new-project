@@ -11,8 +11,6 @@ import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users } from 'lucide-react';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '../components/ui/carousel';
 import { toast } from 'sonner';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 interface BedDto { id: number; isBooked: boolean; }
 interface Room {
   id: number; name: string; bedCount: number;
@@ -31,10 +29,7 @@ interface Listing {
   exactAddress: string | null;
 }
 
-const IMAGE_BASE = 'https://unimate.runasp.net/';
 const GENDER_LABELS: Record<number, string> = { 1: 'Male Only', 2: 'Female Only' };
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export const HouseDetail = () => {
   const { id } = useParams();
@@ -75,7 +70,6 @@ export const HouseDetail = () => {
         endDate,
       });
       toast.success('Booking created successfully!');
-      // Refresh listing to update bed availability
       const updated = await api.get<Listing>(`/Listing/${id}`);
       setListing(updated);
       setSelectedBedId(null);
@@ -123,7 +117,6 @@ export const HouseDetail = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Back Button */}
       <div className="bg-[#B19CD9]/5 border-b">
         <div className="container mx-auto px-4 py-4">
           <Button
@@ -139,9 +132,7 @@ export const HouseDetail = () => {
 
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
           <div className="lg:col-span-2">
-            {/* Image Carousel */}
             {allImages.length > 0 ? (
               <Carousel className="mb-8">
                 <CarouselContent>
@@ -149,7 +140,7 @@ export const HouseDetail = () => {
                     <CarouselItem key={index}>
                       <div className="relative aspect-video rounded-lg overflow-hidden">
                         <img
-                          src={`${IMAGE_BASE}${image}`}
+                          src={image}
                           alt={`${listing.title} - Image ${index + 1}`}
                           className="w-full h-full object-cover"
                           onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.jpg'; }}
@@ -167,7 +158,6 @@ export const HouseDetail = () => {
               </div>
             )}
 
-            {/* Title */}
             <div className="mb-6">
               <div className="flex items-start justify-between mb-2 flex-wrap gap-2">
                 <h1 className="text-[#34495E]">{listing.title}</h1>
@@ -188,7 +178,6 @@ export const HouseDetail = () => {
               </p>
             </div>
 
-            {/* Quick Info */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -214,7 +203,6 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
 
-            {/* Description */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Description</h3>
@@ -222,7 +210,6 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
 
-            {/* Rooms & Beds */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Rooms & Beds</h3>
@@ -235,6 +222,19 @@ export const HouseDetail = () => {
                           EGP {room.pricePerBed.toLocaleString()}/bed/month
                         </span>
                       </div>
+                      {room.roomImages.length > 0 && (
+                        <div className="flex gap-2 mb-3 overflow-x-auto">
+                          {room.roomImages.map((img, i) => (
+                            <img
+                              key={i}
+                              src={img}
+                              alt={`${room.name} image ${i + 1}`}
+                              className="h-20 w-32 object-cover rounded flex-shrink-0"
+                              onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.jpg'; }}
+                            />
+                          ))}
+                        </div>
+                      )}
                       <div className="flex flex-wrap gap-2">
                         {room.beds.map(bed => (
                           <button
@@ -263,12 +263,9 @@ export const HouseDetail = () => {
             </Card>
           </div>
 
-          {/* Sidebar */}
           <div className="lg:col-span-1">
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
-
-                {/* Contact Section */}
                 {listing.canViewContact ? (
                   <div className="space-y-3">
                     <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
@@ -291,7 +288,6 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
-                {/* Booking Section - Students only */}
                 {user?.type === 'student' && (
                   <div className="space-y-3 border-t pt-4">
                     <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
@@ -338,7 +334,6 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
-                {/* Property Details */}
                 <div className="border-t pt-4">
                   <h4 className="text-[#34495E] mb-3 font-medium">Property Details</h4>
                   <div className="space-y-2 text-sm text-[#717182]">
