@@ -42,7 +42,7 @@ export const Houses = () => {
   // '' = no filter, '1' = Male, '2' = Female
   const [genderPreference, setGenderPreference] = useState('all');
   // '1' = PriceAsc, '2' = PriceDesc, '3' = Latest (PublishedAt)
-  const [sortingOption, setSortingOption] = useState('3');
+  const [sortingOption, setSortingOption] = useState('1');
 
   const [listings, setListings] = useState<Listing[]>([]);
   const [totalCount, setTotalCount] = useState(0);
