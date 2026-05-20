@@ -6,8 +6,6 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Checkbox } from '../components/ui/checkbox';
 import { toast } from 'sonner';
 
 export const SignUp = () => {
@@ -15,29 +13,21 @@ export const SignUp = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  // Student fields
+  // Student fields — only what Register API accepts
   const [studentData, setStudentData] = useState({
     firstName: '',
     lastName: '',
     email: '',
     password: '',
-    phone: '',
-    gender: '',
-    nationalId: '',
-    dateOfBirth: '',
-    address: '',
-    faculty: '',
-    lookingForRoommate: false,
+    phoneNumber: '',
   });
 
-  // Landlord fields
+  // Landlord fields — only what Register API accepts
   const [landlordData, setLandlordData] = useState({
     firstName: '',
     lastName: '',
     email: '',
     password: '',
-    nationalId: '',
-    address: '',
     phoneNumber: '',
   });
 
@@ -48,16 +38,11 @@ export const SignUp = () => {
       await signup({
         displayName: `${studentData.firstName} ${studentData.lastName}`,
         email: studentData.email,
-        phoneNumber: studentData.phone,
+        phoneNumber: studentData.phoneNumber,
         password: studentData.password,
         role: 'Student',
-        gender: studentData.gender,
-        nationalId: studentData.nationalId,
-        dateOfBirth: studentData.dateOfBirth,
-        address: studentData.address,
-        faculty: studentData.faculty,
-        lookingForRoommate: studentData.lookingForRoommate,
       });
+      // Go to Matching page which handles Student CompleteProfile
       navigate('/matching');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed. Please try again.';
@@ -77,10 +62,9 @@ export const SignUp = () => {
         phoneNumber: landlordData.phoneNumber,
         password: landlordData.password,
         role: 'LandLord',
-        nationalId: landlordData.nationalId,
-        address: landlordData.address,
       });
-      navigate('/');
+      // Go to CompleteProfile page which handles Landlord CompleteProfile
+      navigate('/complete-profile');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed. Please try again.';
       toast.error(message);
@@ -91,7 +75,7 @@ export const SignUp = () => {
 
   return (
     <div className="min-h-[calc(100vh-80px)] bg-[#B19CD9]/10 flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl shadow-lg my-8">
+      <Card className="w-full max-w-lg shadow-lg my-8">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
             <div className="w-16 h-16 bg-[#00A5A7] rounded-lg flex items-center justify-center">
@@ -112,23 +96,23 @@ export const SignUp = () => {
               </TabsTrigger>
             </TabsList>
 
-            {/* Student Form */}
+            {/* ── Student Form ── */}
             <TabsContent value="student">
               <form onSubmit={handleStudentSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="student-firstName">First Name</Label>
+                    <Label htmlFor="s-firstName">First Name</Label>
                     <Input
-                      id="student-firstName"
+                      id="s-firstName"
                       value={studentData.firstName}
                       onChange={(e) => setStudentData({ ...studentData, firstName: e.target.value })}
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="student-lastName">Last Name</Label>
+                    <Label htmlFor="s-lastName">Last Name</Label>
                     <Input
-                      id="student-lastName"
+                      id="s-lastName"
                       value={studentData.lastName}
                       onChange={(e) => setStudentData({ ...studentData, lastName: e.target.value })}
                       required
@@ -137,9 +121,9 @@ export const SignUp = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="student-email">Email</Label>
+                  <Label htmlFor="s-email">Email</Label>
                   <Input
-                    id="student-email"
+                    id="s-email"
                     type="email"
                     value={studentData.email}
                     onChange={(e) => setStudentData({ ...studentData, email: e.target.value })}
@@ -148,97 +132,25 @@ export const SignUp = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="student-password">Password</Label>
+                  <Label htmlFor="s-phone">Phone Number</Label>
                   <Input
-                    id="student-password"
+                    id="s-phone"
+                    value={studentData.phoneNumber}
+                    onChange={(e) => setStudentData({ ...studentData, phoneNumber: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="s-password">Password</Label>
+                  <Input
+                    id="s-password"
                     type="password"
                     placeholder="Min 8 chars, include uppercase & number"
                     value={studentData.password}
                     onChange={(e) => setStudentData({ ...studentData, password: e.target.value })}
                     required
                   />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="student-phone">Phone Number</Label>
-                    <Input
-                      id="student-phone"
-                      value={studentData.phone}
-                      onChange={(e) => setStudentData({ ...studentData, phone: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="student-gender">Gender</Label>
-                    <Select
-                      value={studentData.gender}
-                      onValueChange={(value) => setStudentData({ ...studentData, gender: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="male">Male</SelectItem>
-                        <SelectItem value="female">Female</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="student-nationalId">National ID</Label>
-                    <Input
-                      id="student-nationalId"
-                      value={studentData.nationalId}
-                      onChange={(e) => setStudentData({ ...studentData, nationalId: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="student-dateOfBirth">Date of Birth</Label>
-                    <Input
-                      id="student-dateOfBirth"
-                      type="date"
-                      value={studentData.dateOfBirth}
-                      onChange={(e) => setStudentData({ ...studentData, dateOfBirth: e.target.value })}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="student-address">Address</Label>
-                  <Input
-                    id="student-address"
-                    value={studentData.address}
-                    onChange={(e) => setStudentData({ ...studentData, address: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="student-faculty">Faculty</Label>
-                  <Input
-                    id="student-faculty"
-                    value={studentData.faculty}
-                    onChange={(e) => setStudentData({ ...studentData, faculty: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="lookingForRoommate"
-                    checked={studentData.lookingForRoommate}
-                    onCheckedChange={(checked) =>
-                      setStudentData({ ...studentData, lookingForRoommate: checked === true })
-                    }
-                  />
-                  <Label htmlFor="lookingForRoommate" className="cursor-pointer">
-                    I'm looking for a roommate
-                  </Label>
                 </div>
 
                 <Button
@@ -251,23 +163,23 @@ export const SignUp = () => {
               </form>
             </TabsContent>
 
-            {/* Landlord Form */}
+            {/* ── Landlord Form ── */}
             <TabsContent value="landlord">
               <form onSubmit={handleLandlordSubmit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="landlord-firstName">First Name</Label>
+                    <Label htmlFor="l-firstName">First Name</Label>
                     <Input
-                      id="landlord-firstName"
+                      id="l-firstName"
                       value={landlordData.firstName}
                       onChange={(e) => setLandlordData({ ...landlordData, firstName: e.target.value })}
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="landlord-lastName">Last Name</Label>
+                    <Label htmlFor="l-lastName">Last Name</Label>
                     <Input
-                      id="landlord-lastName"
+                      id="l-lastName"
                       value={landlordData.lastName}
                       onChange={(e) => setLandlordData({ ...landlordData, lastName: e.target.value })}
                       required
@@ -276,9 +188,9 @@ export const SignUp = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="landlord-email">Email</Label>
+                  <Label htmlFor="l-email">Email</Label>
                   <Input
-                    id="landlord-email"
+                    id="l-email"
                     type="email"
                     value={landlordData.email}
                     onChange={(e) => setLandlordData({ ...landlordData, email: e.target.value })}
@@ -286,11 +198,10 @@ export const SignUp = () => {
                   />
                 </div>
 
-                {/* Phone Number — added here */}
                 <div className="space-y-2">
-                  <Label htmlFor="landlord-phone">Phone Number</Label>
+                  <Label htmlFor="l-phone">Phone Number</Label>
                   <Input
-                    id="landlord-phone"
+                    id="l-phone"
                     value={landlordData.phoneNumber}
                     onChange={(e) => setLandlordData({ ...landlordData, phoneNumber: e.target.value })}
                     required
@@ -298,33 +209,13 @@ export const SignUp = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="landlord-password">Password</Label>
+                  <Label htmlFor="l-password">Password</Label>
                   <Input
-                    id="landlord-password"
+                    id="l-password"
                     type="password"
                     placeholder="Min 8 chars, include uppercase & number"
                     value={landlordData.password}
                     onChange={(e) => setLandlordData({ ...landlordData, password: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="landlord-nationalId">National ID</Label>
-                  <Input
-                    id="landlord-nationalId"
-                    value={landlordData.nationalId}
-                    onChange={(e) => setLandlordData({ ...landlordData, nationalId: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="landlord-address">Address</Label>
-                  <Input
-                    id="landlord-address"
-                    value={landlordData.address}
-                    onChange={(e) => setLandlordData({ ...landlordData, address: e.target.value })}
                     required
                   />
                 </div>
