@@ -10,9 +10,9 @@ import { Login } from '../pages/Login';
 import { SignUp } from '../pages/SignUp';
 import { Admin } from '../pages/Admin';
 import { Matching } from '../pages/Matching';
-import { ForgotPassword } from '../pages/ForgotPassword';  // ← fix path
-import { ResetPassword } from '../pages/ResetPassword';    // ← fix path
-import { completeprofile } from '../pages/completeprofile';
+import { ForgotPassword } from '../pages/ForgotPassword';  
+import { ResetPassword } from '../pages/ResetPassword';   
+import { CompleteProfile } from '../pages/CompleteProfile';  
 
 export const router = createBrowserRouter([
   {
