@@ -4,18 +4,9 @@ import { api } from '../utils/api';
 import { HouseCard } from '../components/HouseCard';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Slider } from '../components/ui/slider';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Search, SlidersHorizontal } from 'lucide-react';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '../components/ui/sheet';
+import { Search } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,26 +36,40 @@ interface PaginatedListings {
 
 export const Houses = () => {
   const [searchParams] = useSearchParams();
+
+  // ── Filter state — matches backend params exactly ──────────────────────────
   const [city, setCity] = useState(searchParams.get('search') || '');
-  const [genderPreference, setGenderPreference] = useState('0');
-  const [sortingOption, setSortingOption] = useState('1');
-  const [priceRange, setPriceRange] = useState([
-    parseInt(searchParams.get('minPrice') || '0'),
-    parseInt(searchParams.get('maxPrice') || '10000'),
-  ]);
+  // '' = no filter, '1' = Male, '2' = Female
+  const [genderPreference, setGenderPreference] = useState('');
+  // '1' = PriceAsc, '2' = PriceDesc, '3' = Latest (PublishedAt)
+  const [sortingOption, setSortingOption] = useState('3');
+
   const [listings, setListings] = useState<Listing[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [pageIndex, setPageIndex] = useState(1);
   const [loading, setLoading] = useState(true);
   const pageSize = 12;
 
+  // ── Fetch ──────────────────────────────────────────────────────────────────
+
   const fetchListings = async (page = 1) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (city) params.append('City', city);
-      if (genderPreference !== '0') params.append('GenderPreference', genderPreference);
+
+      // City — exact match filter
+      if (city.trim()) params.append('City', city.trim());
+
+      // GenderPreference — only send if a specific gender is selected
+      // Backend accepts: 1 (Male), 2 (Female). Don't send 0 or empty.
+      if (genderPreference === '1' || genderPreference === '2') {
+        params.append('GenderPreference', genderPreference);
+      }
+
+      // SortingOption — 1=PriceAsc, 2=PriceDesc, 3=Latest
       params.append('SortingOption', sortingOption);
+
+      // Pagination
       params.append('PageIndex', String(page));
       params.append('PageSize', String(pageSize));
 
@@ -74,11 +79,14 @@ export const Houses = () => {
       setPageIndex(page);
     } catch (err) {
       console.error('Failed to fetch listings', err);
+      setListings([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
   };
 
+  // Re-fetch when dropdowns change (city uses the Search button)
   useEffect(() => {
     fetchListings(1);
   }, [genderPreference, sortingOption]);
@@ -87,91 +95,112 @@ export const Houses = () => {
 
   const totalPages = Math.ceil(totalCount / pageSize);
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
-        {/* Search & Filter Bar */}
+
+        {/* ── Search & Filter Bar ── */}
         <div className="bg-white rounded-lg shadow-md p-4 mb-8">
-          <div className="flex gap-4 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
+          <div className="flex gap-3 flex-wrap items-end">
+
+            {/* City search */}
+            <div className="flex-1 min-w-[200px] space-y-1">
+              <Label className="text-xs text-[#717182]">City</Label>
               <Input
-                placeholder="Search by city (e.g., Cairo, Giza)"
+                placeholder="e.g., Cairo, Giza, Alexandria"
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                className="h-12"
+                className="h-11"
               />
             </div>
 
-            {/* Gender Preference Filter */}
-            <Select value={genderPreference} onValueChange={setGenderPreference}>
-              <SelectTrigger className="h-12 w-40">
-                <SelectValue placeholder="Gender" />
-             </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">Price: Low to High</SelectItem>
-                <SelectItem value="2">Price: High to Low</SelectItem>
-              </SelectContent>
-            </Select>
+            {/* Gender Preference — matches backend enum: 1=Male, 2=Female */}
+            <div className="space-y-1">
+              <Label className="text-xs text-[#717182]">Gender Preference</Label>
+              <Select value={genderPreference} onValueChange={setGenderPreference}>
+                <SelectTrigger className="h-11 w-40">
+                  <SelectValue placeholder="Any gender" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Any</SelectItem>
+                  <SelectItem value="1">Male Only</SelectItem>
+                  <SelectItem value="2">Female Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-            {/* Sort */}
-            <Select value={sortingOption} onValueChange={setSortingOption}>
-              <SelectTrigger className="h-12 w-44">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="3">Latest</SelectItem>
-                <SelectItem value="1">Price: Low to High</SelectItem>
-                <SelectItem value="2">Price: High to Low</SelectItem>
-              </SelectContent>
-            </Select>
+            {/* Sort — matches backend SortingOptions enum */}
+            <div className="space-y-1">
+              <Label className="text-xs text-[#717182]">Sort By</Label>
+              <Select value={sortingOption} onValueChange={setSortingOption}>
+                <SelectTrigger className="h-11 w-44">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="3">Latest</SelectItem>
+                  <SelectItem value="1">Price: Low to High</SelectItem>
+                  <SelectItem value="2">Price: High to Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
+            {/* Search button */}
             <Button
               onClick={handleSearch}
-              className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-12 px-6"
+              className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6"
             >
-              <Search className="w-5 h-5 mr-2" />
+              <Search className="w-4 h-4 mr-2" />
               Search
             </Button>
 
-            {/* Mobile Filters */}
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="outline" className="h-12 md:hidden">
-                  <SlidersHorizontal className="w-5 h-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent>
-                <SheetHeader>
-                  <SheetTitle>Filters</SheetTitle>
-                  <SheetDescription>Adjust your search preferences</SheetDescription>
-                </SheetHeader>
-                <div className="mt-6 space-y-4">
-                  <div className="space-y-2">
-                    <Label>
-                      Price Range: EGP {priceRange[0].toLocaleString()} - EGP {priceRange[1].toLocaleString()}
-                    </Label>
-                    <Slider
-                      min={0} max={10000} step={100}
-                      value={priceRange}
-                      onValueChange={setPriceRange}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-              </SheetContent>
-            </Sheet>
+            {/* Reset filters */}
+            {(city || genderPreference || sortingOption !== '3') && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCity('');
+                  setGenderPreference('');
+                  setSortingOption('3');
+                }}
+                className="h-11 text-[#717182] hover:text-[#34495E]"
+              >
+                Reset
+              </Button>
+            )}
           </div>
+
+          {/* Active filter tags */}
+          {(city || genderPreference) && (
+            <div className="flex gap-2 mt-3 flex-wrap">
+              {city && (
+                <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#00A5A7]/10 text-[#00A5A7] rounded-full text-sm">
+                  City: {city}
+                  <button onClick={() => { setCity(''); fetchListings(1); }} className="ml-1 hover:text-[#FF6F61]">×</button>
+                </span>
+              )}
+              {genderPreference && (
+                <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#B19CD9]/20 text-[#34495E] rounded-full text-sm">
+                  {genderPreference === '1' ? 'Male Only' : 'Female Only'}
+                  <button onClick={() => setGenderPreference('')} className="ml-1 hover:text-[#FF6F61]">×</button>
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Results Count */}
+        {/* Results count */}
         <div className="mb-6">
           <p className="text-[#717182]">
-            Found <span className="text-[#00A5A7]">{totalCount}</span> properties
+            {loading ? 'Searching...' : (
+              <>Found <span className="text-[#00A5A7] font-medium">{totalCount}</span> {totalCount === 1 ? 'property' : 'properties'}</>
+            )}
           </p>
         </div>
 
-        {/* Listings Grid */}
+        {/* ── Listings Grid ── */}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -188,7 +217,7 @@ export const Houses = () => {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex justify-center gap-2 mt-8">
+              <div className="flex justify-center items-center gap-2 mt-10">
                 <Button
                   variant="outline"
                   disabled={pageIndex === 1}
@@ -196,7 +225,7 @@ export const Houses = () => {
                 >
                   Previous
                 </Button>
-                <span className="flex items-center px-4 text-[#717182]">
+                <span className="px-4 text-[#717182] text-sm">
                   Page {pageIndex} of {totalPages}
                 </span>
                 <Button
@@ -210,10 +239,17 @@ export const Houses = () => {
             )}
           </>
         ) : (
-          <div className="text-center py-16">
-            <p className="text-[#717182]" style={{ fontSize: '18px' }}>
-              No properties found matching your criteria
-            </p>
+          <div className="text-center py-16 space-y-3">
+            <p className="text-[#717182] text-lg">No properties found matching your criteria</p>
+            {(city || genderPreference) && (
+              <Button
+                variant="outline"
+                onClick={() => { setCity(''); setGenderPreference(''); setSortingOption('3'); }}
+                className="border-[#00A5A7] text-[#00A5A7]"
+              >
+                Clear filters
+              </Button>
+            )}
           </div>
         )}
       </div>
