@@ -40,7 +40,7 @@ export const Houses = () => {
   // ── Filter state — matches backend params exactly ──────────────────────────
   const [city, setCity] = useState(searchParams.get('search') || '');
   // '' = no filter, '1' = Male, '2' = Female
-  const [genderPreference, setGenderPreference] = useState('');
+  const [genderPreference, setGenderPreference] = useState('all');
   // '1' = PriceAsc, '2' = PriceDesc, '3' = Latest (PublishedAt)
   const [sortingOption, setSortingOption] = useState('3');
 
@@ -125,7 +125,7 @@ export const Houses = () => {
                   <SelectValue placeholder="Any gender" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Any</SelectItem>
+                  <SelectItem value="all">Any</SelectItem>
                   <SelectItem value="1">Male Only</SelectItem>
                   <SelectItem value="2">Female Only</SelectItem>
                 </SelectContent>
