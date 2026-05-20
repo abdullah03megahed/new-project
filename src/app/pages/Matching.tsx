@@ -8,50 +8,41 @@ import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { RadioGroup, RadioGroupItem } from '../components/ui/radio-group';
+import { Textarea } from '../components/ui/textarea';
 import { Home, Users, Moon } from 'lucide-react';
 import { toast } from 'sonner';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface StudentUpdatePayload {
-  firstName: string;
-  lastName: string;
-  phoneNumber: string;
-  gender: string;
-  dateOfBirth: string;
-  address: string;
-  faculty: string;
-  lookingForRoommate: boolean;
-  governorate?: string;
-  hometown?: string;
-  budgetRange?: string;
-  wantsRoommate?: boolean;
-  sleepCode?: string;
-}
-
 const egyptianGovernorates = [
-  'Cairo', 'Giza', 'Alexandria', 'Fayoum', 'Aswan', 'Luxor', 'Assiut',
-  'Sohag', 'Minya', 'Beni Suef', 'Qalyubia', 'Sharqia', 'Gharbia',
-  'Dakahlia', 'Damietta', 'Port Said', 'Ismailia', 'Suez', 'Kafr El Sheikh',
-  'Monufia', 'Beheira', 'Red Sea', 'North Sinai', 'South Sinai', 'Matruh', 'New Valley',
+  'Cairo', 'Giza', 'Alexandria', 'Fayoum', 'Aswan', 'Luxor',
+  'Assiut', 'Sohag', 'Minya', 'Beni Suef', 'Qalyubia', 'Sharqia',
+  'Gharbia', 'Dakahlia', 'Damietta', 'Port Said', 'Ismailia', 'Suez',
+  'Kafr El Sheikh', 'Monufia', 'Beheira', 'Red Sea', 'North Sinai',
+  'South Sinai', 'Matruh', 'New Valley',
 ];
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// Backend enum values
+const GENDER_MAP: Record<string, number> = { male: 1, female: 2 };
+const SLEEP_MAP: Record<string, number> = { 'Early Bird': 1, 'Night Owl': 2, 'Flexible': 3 };
 
 export const Matching = () => {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
-    gender: (user as any)?.gender || '',
-    dateOfBirth: (user as any)?.dateOfBirth || '',
-    governorate: (user as any)?.governorate || '',
-    hometown: (user as any)?.hometown || '',
-    faculty: (user as any)?.faculty || '',
-    budgetRange: (user as any)?.budgetRange || '',
-    wantsRoommate: 'yes',
-    sleepCode: (user as any)?.sleepCode || '',
+    firstName: user?.firstName || '',
+    lastName: user?.lastName || '',
+    birthDate: user?.dateOfBirth || '',
+    gender: user?.gender || '',
+    homeTown: '',
+    facultyField: user?.faculty || '',
+    lookingForRoommate: true,
+    sleepingHabits: '',
+    minBudget: '',
+    maxBudget: '',
+    nationalCard: '',
+    universityCard: '',
+    bio: '',
   });
 
   if (!user || user.type !== 'student') {
@@ -61,70 +52,48 @@ export const Matching = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-
-    const age = formData.dateOfBirth
-      ? new Date().getFullYear() - new Date(formData.dateOfBirth).getFullYear()
-      : undefined;
-
-    // Build the full student update payload — backend needs all fields
-    const payload: StudentUpdatePayload = {
-      firstName: (user as any).firstName || '',
-      lastName: (user as any).lastName || '',
-      phoneNumber: (user as any).phone || (user as any).phoneNumber || '',
-      gender: formData.gender,
-      dateOfBirth: formData.dateOfBirth,
-      address: (user as any).address || '',
-      faculty: formData.faculty,
-      lookingForRoommate: formData.wantsRoommate === 'yes',
-      governorate: formData.governorate,
-      hometown: formData.hometown,
-      budgetRange: formData.budgetRange,
-      wantsRoommate: formData.wantsRoommate === 'yes',
-      sleepCode: formData.sleepCode,
-    };
+    setLoading(true);
 
     try {
-      // Only call if we have a student ID
-      if (user.id) {
-        await api.put(`/Student/${user.id}`, payload);
-      }
-
-      // Always update local context so the profile page reflects the changes
-      updateUser({
-        gender: formData.gender as 'male' | 'female',
-        dateOfBirth: formData.dateOfBirth,
-        age,
-        governorate: formData.governorate,
-        hometown: formData.hometown,
-        faculty: formData.faculty,
-        budgetRange: formData.budgetRange,
-        wantsRoommate: formData.wantsRoommate === 'yes',
-        sleepCode: formData.sleepCode as 'Early Bird' | 'Night Owl' | 'Flexible',
-        lookingForRoommate: formData.wantsRoommate === 'yes',
+      await api.post('/Student/CompleteProfile', {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        birthDate: formData.birthDate,
+        gender: GENDER_MAP[formData.gender] || 1,
+        homeTown: formData.homeTown,
+        facultyField: formData.facultyField,
+        lookingForRoommate: formData.lookingForRoommate,
+        sleepingHabits: SLEEP_MAP[formData.sleepingHabits] || 1,
+        minBudget: Number(formData.minBudget) || 0,
+        maxBudget: Number(formData.maxBudget) || 0,
+        nationalCard: formData.nationalCard,
+        universityCard: formData.universityCard,
+        bio: formData.bio,
       });
 
-      toast.success('Matching preferences saved!');
+      // Update local user state
+      updateUser({
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        displayName: `${formData.firstName} ${formData.lastName}`,
+        dateOfBirth: formData.birthDate,
+        gender: formData.gender as 'male' | 'female',
+        homeTown: formData.homeTown,
+        faculty: formData.facultyField,
+        lookingForRoommate: formData.lookingForRoommate,
+        sleepCode: formData.sleepingHabits as 'Early Bird' | 'Night Owl' | 'Flexible',
+        minBudget: Number(formData.minBudget) || 0,
+        maxBudget: Number(formData.maxBudget) || 0,
+        bio: formData.bio,
+      });
+
+      toast.success('Profile completed successfully!');
       navigate('/profile');
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to save preferences.';
+      const message = err instanceof Error ? err.message : 'Failed to complete profile.';
       toast.error(message);
-      // Still update locally so the user doesn't lose their input
-      updateUser({
-        gender: formData.gender as 'male' | 'female',
-        dateOfBirth: formData.dateOfBirth,
-        age,
-        governorate: formData.governorate,
-        hometown: formData.hometown,
-        faculty: formData.faculty,
-        budgetRange: formData.budgetRange,
-        wantsRoommate: formData.wantsRoommate === 'yes',
-        sleepCode: formData.sleepCode as 'Early Bird' | 'Night Owl' | 'Flexible',
-        lookingForRoommate: formData.wantsRoommate === 'yes',
-      });
-      navigate('/profile');
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
@@ -147,20 +116,42 @@ export const Matching = () => {
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-8">
+            <form onSubmit={handleSubmit} className="space-y-6">
+
+              {/* Name */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>First Name</Label>
+                  <Input
+                    value={formData.firstName}
+                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                    required
+                    className="h-12 border-[#00A5A7]/20"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Last Name</Label>
+                  <Input
+                    value={formData.lastName}
+                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                    required
+                    className="h-12 border-[#00A5A7]/20"
+                  />
+                </div>
+              </div>
 
               {/* Gender */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2 text-[#34495E]" style={{ fontSize: '16px' }}>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-[#34495E]">
                   <Users className="w-4 h-4 text-[#00A5A7]" />
                   Gender
                 </Label>
                 <Select
                   value={formData.gender}
-                  onValueChange={(value) => setFormData({ ...formData, gender: value })}
+                  onValueChange={(v) => setFormData({ ...formData, gender: v })}
                   required
                 >
-                  <SelectTrigger className="h-12 border-[#00A5A7]/20 focus:border-[#00A5A7]">
+                  <SelectTrigger className="h-12 border-[#00A5A7]/20">
                     <SelectValue placeholder="Select your gender" />
                   </SelectTrigger>
                   <SelectContent>
@@ -171,32 +162,30 @@ export const Matching = () => {
               </div>
 
               {/* Date of Birth */}
-              <div className="space-y-3">
-                <Label className="text-[#34495E]" style={{ fontSize: '16px' }}>
-                  Date of Birth
-                </Label>
+              <div className="space-y-2">
+                <Label>Date of Birth</Label>
                 <Input
                   type="date"
-                  value={formData.dateOfBirth}
-                  onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                  value={formData.birthDate}
+                  onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
                   required
-                  className="h-12 border-[#00A5A7]/20 focus:border-[#00A5A7]"
+                  className="h-12 border-[#00A5A7]/20"
                   max={new Date().toISOString().split('T')[0]}
                 />
               </div>
 
-              {/* Governorate */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2 text-[#34495E]" style={{ fontSize: '16px' }}>
+              {/* Hometown */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-[#34495E]">
                   <Home className="w-4 h-4 text-[#00A5A7]" />
-                  Hometown Governorate
+                  Hometown
                 </Label>
                 <Select
-                  value={formData.governorate}
-                  onValueChange={(value) => setFormData({ ...formData, governorate: value })}
+                  value={formData.homeTown}
+                  onValueChange={(v) => setFormData({ ...formData, homeTown: v })}
                   required
                 >
-                  <SelectTrigger className="h-12 border-[#00A5A7]/20 focus:border-[#00A5A7]">
+                  <SelectTrigger className="h-12 border-[#00A5A7]/20">
                     <SelectValue placeholder="Select your governorate" />
                   </SelectTrigger>
                   <SelectContent className="max-h-[300px]">
@@ -207,105 +196,135 @@ export const Matching = () => {
                 </Select>
               </div>
 
-              {/* Hometown Address */}
-              <div className="space-y-3">
-                <Label className="text-[#34495E]" style={{ fontSize: '16px' }}>
-                  Hometown Address <span className="text-[#717182] text-sm">(Optional)</span>
-                </Label>
-                <Input
-                  type="text"
-                  placeholder="Enter your hometown address"
-                  value={formData.hometown}
-                  onChange={(e) => setFormData({ ...formData, hometown: e.target.value })}
-                  className="h-12 border-[#00A5A7]/20 focus:border-[#00A5A7]"
-                />
-              </div>
-
               {/* Faculty */}
-              <div className="space-y-3">
-                <Label className="text-[#34495E]" style={{ fontSize: '16px' }}>
-                  Faculty / Study Field
-                </Label>
+              <div className="space-y-2">
+                <Label>Faculty / Study Field</Label>
                 <Input
-                  type="text"
                   placeholder="e.g., Engineering, Medicine, Business"
-                  value={formData.faculty}
-                  onChange={(e) => setFormData({ ...formData, faculty: e.target.value })}
+                  value={formData.facultyField}
+                  onChange={(e) => setFormData({ ...formData, facultyField: e.target.value })}
                   required
-                  className="h-12 border-[#00A5A7]/20 focus:border-[#00A5A7]"
+                  className="h-12 border-[#00A5A7]/20"
                 />
               </div>
 
-              {/* Budget Range */}
-              <div className="space-y-3">
-                <Label className="text-[#34495E]" style={{ fontSize: '16px' }}>
-                  Budget Range (EGP per month)
-                </Label>
+              {/* National Card */}
+              <div className="space-y-2">
+                <Label>National ID Number</Label>
                 <Input
-                  type="text"
-                  placeholder="e.g., 2000-3000"
-                  value={formData.budgetRange}
-                  onChange={(e) => setFormData({ ...formData, budgetRange: e.target.value })}
+                  placeholder="Enter your national ID"
+                  value={formData.nationalCard}
+                  onChange={(e) => setFormData({ ...formData, nationalCard: e.target.value })}
                   required
-                  className="h-12 border-[#00A5A7]/20 focus:border-[#00A5A7]"
+                  className="h-12 border-[#00A5A7]/20"
                 />
               </div>
 
-              {/* Wants Roommate */}
-              <div className="space-y-3">
-                <Label className="text-[#34495E]" style={{ fontSize: '16px' }}>
-                  Do you want a roommate?
-                </Label>
+              {/* University Card */}
+              <div className="space-y-2">
+                <Label>University Card Number</Label>
+                <Input
+                  placeholder="Enter your university card number"
+                  value={formData.universityCard}
+                  onChange={(e) => setFormData({ ...formData, universityCard: e.target.value })}
+                  className="h-12 border-[#00A5A7]/20"
+                />
+              </div>
+
+              {/* Budget */}
+              <div className="space-y-2">
+                <Label>Budget Range (EGP/month)</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    type="number"
+                    placeholder="Min budget"
+                    value={formData.minBudget}
+                    onChange={(e) => setFormData({ ...formData, minBudget: e.target.value })}
+                    required
+                    className="h-12 border-[#00A5A7]/20"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max budget"
+                    value={formData.maxBudget}
+                    onChange={(e) => setFormData({ ...formData, maxBudget: e.target.value })}
+                    required
+                    className="h-12 border-[#00A5A7]/20"
+                  />
+                </div>
+              </div>
+
+              {/* Looking for Roommate */}
+              <div className="space-y-2">
+                <Label>Do you want a roommate?</Label>
                 <RadioGroup
-                  value={formData.wantsRoommate}
-                  onValueChange={(value) => setFormData({ ...formData, wantsRoommate: value })}
+                  value={formData.lookingForRoommate ? 'yes' : 'no'}
+                  onValueChange={(v) => setFormData({ ...formData, lookingForRoommate: v === 'yes' })}
                   className="flex gap-6"
                 >
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="yes" id="yes" className="border-[#00A5A7] text-[#00A5A7]" />
-                    <Label htmlFor="yes" className="cursor-pointer text-[#34495E]">Yes</Label>
+                    <Label htmlFor="yes" className="cursor-pointer">Yes</Label>
                   </div>
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="no" id="no" className="border-[#00A5A7] text-[#00A5A7]" />
-                    <Label htmlFor="no" className="cursor-pointer text-[#34495E]">No</Label>
+                    <Label htmlFor="no" className="cursor-pointer">No</Label>
                   </div>
                 </RadioGroup>
               </div>
 
               {/* Sleep Code */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2 text-[#34495E]" style={{ fontSize: '16px' }}>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-[#34495E]">
                   <Moon className="w-4 h-4 text-[#00A5A7]" />
-                  Sleep Code
+                  Sleep Habits
                 </Label>
                 <Select
                   value={formData.sleepingHabits}
-                  onValueChange={(value) => setFormData({ ...formData, sleepCode: value })}
+                  onValueChange={(v) => setFormData({ ...formData, sleepingHabits: v })}
                   required
                 >
-                  <SelectTrigger className="h-12 border-[#00A5A7]/20 focus:border-[#00A5A7]">
+                  <SelectTrigger className="h-12 border-[#00A5A7]/20">
                     <SelectValue placeholder="Select your sleep preference" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">🌅 Early Bird</SelectItem>
-                    <SelectItem value="2">🌙 Night Owl</SelectItem>
-                    <SelectItem value="3">⚡ Flexible</SelectItem>
+                    <SelectItem value="Early Bird">🌅 Early Bird</SelectItem>
+                    <SelectItem value="Night Owl">🌙 Night Owl</SelectItem>
+                    <SelectItem value="Flexible">⚡ Flexible</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
+              {/* Bio */}
+              <div className="space-y-2">
+                <Label>Bio (Optional)</Label>
+                <Textarea
+                  placeholder="Tell potential roommates about yourself..."
+                  value={formData.bio}
+                  onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                  rows={3}
+                  className="border-[#00A5A7]/20"
+                />
+              </div>
+
               {/* Submit */}
-              <div className="pt-4">
+              <div className="pt-4 space-y-3">
                 <Button
                   type="submit"
-                  disabled={saving}
+                  disabled={loading}
                   className="w-full h-12 bg-gradient-to-r from-[#00A5A7] to-[#00A5A7]/90 hover:from-[#00A5A7]/90 hover:to-[#00A5A7]/80 text-white shadow-lg"
                   style={{ fontSize: '16px', fontWeight: '600' }}
                 >
-                  {saving ? 'Saving...' : 'Complete Profile & Find Matches'}
+                  {loading ? 'Saving...' : 'Complete Profile & Find Matches'}
                 </Button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  className="w-full text-center text-[#717182] text-sm hover:underline"
+                >
+                  Skip for now
+                </button>
               </div>
-
             </form>
           </CardContent>
         </Card>
