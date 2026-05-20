@@ -94,10 +94,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function roleToType(role: string): 'student' | 'landlord' | 'admin' {
-  const r = role.toLowerCase();
-  if (r === 'student') return 'student';
-  if (r === 'landlord') return 'landlord';
+function roleToType(role?: string): 'student' | 'landlord' | 'admin' {
+  if (!role) return 'admin';
+
+  const r = role.trim().toLowerCase();
+
+  if (r.includes('student')) return 'student';
+  if (r.includes('landlord')) return 'landlord';
+
   return 'admin';
 }
 
@@ -250,8 +254,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signup = async (payload: SignupPayload) => {
-    const data = await api.post<AuthResponse>('/Authentication/Register', payload);
-    const newUser = buildUserFromAuth(data);
+  const data = await api.post<AuthResponse>(
+    '/Authentication/Register',
+    payload
+  );
+
+  console.log('REGISTER RESPONSE:', data);
+
+  const newUser: User = {
+    ...buildUserFromAuth(data),
+    type: payload.role === 'LandLord' ? 'landlord' : 'student',
+  };
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(newUser));
     setToken(data.token);
