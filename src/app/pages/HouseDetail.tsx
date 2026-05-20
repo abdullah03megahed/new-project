@@ -11,7 +11,7 @@ import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users } from 'lucide-react';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '../components/ui/carousel';
 import { toast } from 'sonner';
 
-interface BedDto { id: number; isBooked: boolean; }
+interface BedDto { id: number; bedNumber?: number; isBooked: boolean; }
 interface Room {
   id: number; name: string; bedCount: number;
   pricePerBed: number; roomImages: string[]; beds: BedDto[];
@@ -252,7 +252,7 @@ export const HouseDetail = () => {
                             `}
                           >
                             <Bed className="w-4 h-4 inline mr-1" />
-                            Bed {bed.id} {bed.isBooked ? '(Booked)' : '(Available)'}
+                            Bed {(bed as any).bedNumber ?? bed.id} {bed.isBooked ? '(Booked)' : '(Available)'}
                           </button>
                         ))}
                       </div>
