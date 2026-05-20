@@ -107,11 +107,10 @@ export const Houses = () => {
             <Select value={genderPreference} onValueChange={setGenderPreference}>
               <SelectTrigger className="h-12 w-40">
                 <SelectValue placeholder="Gender" />
-              </SelectTrigger>
+             </SelectTrigger>
               <SelectContent>
-                <SelectItem value="0">Any Gender</SelectItem>
-                <SelectItem value="1">Male Only</SelectItem>
-                <SelectItem value="2">Female Only</SelectItem>
+                <SelectItem value="1">Price: Low to High</SelectItem>
+                <SelectItem value="2">Price: High to Low</SelectItem>
               </SelectContent>
             </Select>
 
