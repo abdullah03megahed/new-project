@@ -30,9 +30,9 @@ export interface User {
   minBudget?: number;
   maxBudget?: number;
   sleepingHabits?: number;
+  accountId?: string; // JWT sub claim
 }
 
-// Only what POST /api/Authentication/Register accepts
 export interface SignupPayload {
   displayName: string;
   email: string;
@@ -79,7 +79,6 @@ interface StudentProfile {
   phoneNumber?: string;
 }
 
-// ← loading is now included
 interface AuthContextType {
   user: User | null;
   token: string | null;
@@ -96,12 +95,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 function roleToType(role?: string): 'student' | 'landlord' | 'admin' {
   if (!role) return 'admin';
-
   const r = role.trim().toLowerCase();
-
   if (r.includes('student')) return 'student';
   if (r.includes('landlord')) return 'landlord';
-
   return 'admin';
 }
 
@@ -111,10 +107,28 @@ function genderToString(gender?: number): 'male' | 'female' | undefined {
   return undefined;
 }
 
-function buildUserFromAuth(data: AuthResponse): User {
+// Decode JWT to get the accountId (sub claim)
+function getAccountIdFromToken(token: string): string | null {
+  try {
+    const payload = token.split('.')[1];
+    const decoded = JSON.parse(atob(payload));
+    // ASP.NET Identity puts the user ID in different claims
+    return (
+      decoded['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'] ||
+      decoded['sub'] ||
+      decoded['nameid'] ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function buildUserFromAuth(data: AuthResponse, accountId?: string): User {
   const nameParts = data.displayName?.split(' ') || ['', ''];
   return {
     id: '',
+    accountId: accountId || '',
     type: roleToType(data.role),
     displayName: data.displayName,
     firstName: nameParts[0] || data.displayName,
@@ -164,7 +178,6 @@ function mergeWithStudentProfile(base: User, p: StudentProfile): User {
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Rehydrate synchronously — user is never null on first render if already logged in
   const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('user');
@@ -176,7 +189,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.getItem('token')
   );
 
-  // loading = true only while silently refreshing a stale profile in the background
   const [loading, setLoading] = useState(false);
 
   // On mount: if token exists but profile id is missing, re-fetch silently
@@ -188,29 +200,31 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let parsed: User;
     try { parsed = JSON.parse(storedUser); } catch { return; }
 
-    // Profile already has an id — nothing to refresh
     if (parsed.id) return;
+
+    const accountId = parsed.accountId || getAccountIdFromToken(storedToken);
+    if (!accountId) return;
 
     setLoading(true);
     const refresh = async () => {
       try {
         if (parsed.type === 'landlord') {
           const profile = await api.get<LandlordProfile>(
-            `/LandLord/Email?email=${encodeURIComponent(parsed.email)}`
+            `/LandLord/Account/${accountId}`
           );
           const updated = mergeWithLandlordProfile(parsed, profile);
           setUser(updated);
           localStorage.setItem('user', JSON.stringify(updated));
         } else if (parsed.type === 'student') {
           const profile = await api.get<StudentProfile>(
-            `/Student/Email?email=${encodeURIComponent(parsed.email)}`
+            `/Student/Account/${accountId}`
           );
           const updated = mergeWithStudentProfile(parsed, profile);
           setUser(updated);
           localStorage.setItem('user', JSON.stringify(updated));
         }
       } catch {
-        // Keep cached user — don't log out just because refresh failed
+        // Keep cached user
       } finally {
         setLoading(false);
       }
@@ -224,19 +238,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('token', data.token);
     setToken(data.token);
 
-    let newUser = buildUserFromAuth(data);
+    const accountId = getAccountIdFromToken(data.token);
+    let newUser = buildUserFromAuth(data, accountId || '');
 
-    if (newUser.type === 'landlord') {
+    if (newUser.type === 'landlord' && accountId) {
       try {
         const profile = await api.get<LandlordProfile>(
-          `/LandLord/Email?email=${encodeURIComponent(email)}`
+          `/LandLord/Account/${accountId}`
         );
         newUser = mergeWithLandlordProfile(newUser, profile);
       } catch { /* continue with minimal data */ }
-    } else if (newUser.type === 'student') {
+    } else if (newUser.type === 'student' && accountId) {
       try {
         const profile = await api.get<StudentProfile>(
-          `/Student/Email?email=${encodeURIComponent(email)}`
+          `/Student/Account/${accountId}`
         );
         newUser = mergeWithStudentProfile(newUser, profile);
       } catch { /* continue with minimal data */ }
@@ -254,17 +269,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signup = async (payload: SignupPayload) => {
-  const data = await api.post<AuthResponse>(
-    '/Authentication/Register',
-    payload
-  );
+    const data = await api.post<AuthResponse>(
+      '/Authentication/Register',
+      payload
+    );
 
-  console.log('REGISTER RESPONSE:', data);
+    const accountId = getAccountIdFromToken(data.token);
+    const newUser: User = {
+      ...buildUserFromAuth(data, accountId || ''),
+      type: payload.role === 'LandLord' ? 'landlord' : 'student',
+    };
 
-  const newUser: User = {
-    ...buildUserFromAuth(data),
-    type: payload.role === 'LandLord' ? 'landlord' : 'student',
-  };
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(newUser));
     setToken(data.token);
