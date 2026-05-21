@@ -7,7 +7,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users } from 'lucide-react';
+import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users, ZoomIn } from 'lucide-react';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '../components/ui/carousel';
 import { toast } from 'sonner';
 
@@ -31,6 +31,11 @@ interface Listing {
 
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 const GENDER_LABELS: Record<number, string> = { 1: 'Male Only', 2: 'Female Only' };
+
+// ── Open image in a new tab so user can zoom natively ────────────────────────
+const openImageInTab = (src: string) => {
+  window.open(src, '_blank', 'noopener,noreferrer');
+};
 
 export const HouseDetail = () => {
   const { id } = useParams();
@@ -71,16 +76,13 @@ export const HouseDetail = () => {
         endDate,
       });
       toast.success('Booking created! Contact details are now unlocked.');
-      // Refresh listing — backend will now return canViewContact: true
-      // along with landlordPhoneNumber and exactAddress
       const updated = await api.get<Listing>(`/Listing/${id}`);
       setListing(updated);
       setSelectedBedId(null);
       setStartDate('');
       setEndDate('');
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Booking failed.';
-      toast.error(message);
+      toast.error(err instanceof Error ? err.message : 'Booking failed.');
     } finally {
       setBookingLoading(false);
     }
@@ -105,7 +107,6 @@ export const HouseDetail = () => {
     );
   }
 
-  // Prefix relative image paths with base URL
   const prefixImage = (img: string) =>
     img.startsWith('http') ? img : `${IMAGE_BASE}${img}`;
 
@@ -135,27 +136,48 @@ export const HouseDetail = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-          {/* Main Content */}
+          {/* ── Main Content ── */}
           <div className="lg:col-span-2">
+
+            {/* ── Listing image carousel — click any image to open in new tab ── */}
             {allImages.length > 0 ? (
-              <Carousel className="mb-8">
-                <CarouselContent>
-                  {allImages.map((image, index) => (
-                    <CarouselItem key={index}>
-                      <div className="relative aspect-video rounded-lg overflow-hidden">
-                        <img
-                          src={prefixImage(image)}
-                          alt={`${listing.title} - Image ${index + 1}`}
-                          className="w-full h-full object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      </div>
-                    </CarouselItem>
-                  ))}
-                </CarouselContent>
-                <CarouselPrevious className="left-4" />
-                <CarouselNext className="right-4" />
-              </Carousel>
+              <div className="mb-8">
+                <Carousel>
+                  <CarouselContent>
+                    {allImages.map((image, index) => {
+                      const src = prefixImage(image);
+                      return (
+                        <CarouselItem key={index}>
+                          <div
+                            className="relative aspect-video rounded-lg overflow-hidden group cursor-zoom-in"
+                            onClick={() => openImageInTab(src)}
+                            title="Click to open full size"
+                          >
+                            <img
+                              src={src}
+                              alt={`${listing.title} - Image ${index + 1}`}
+                              className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                            {/* Zoom hint overlay */}
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200 flex items-end justify-end p-3">
+                              <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                                <ZoomIn className="w-3 h-3" />
+                                Open full size
+                              </span>
+                            </div>
+                          </div>
+                        </CarouselItem>
+                      );
+                    })}
+                  </CarouselContent>
+                  <CarouselPrevious className="left-4" />
+                  <CarouselNext className="right-4" />
+                </Carousel>
+                <p className="text-xs text-[#717182] text-center mt-2">
+                  Click any image to open full size
+                </p>
+              </div>
             ) : (
               <div className="aspect-video rounded-lg bg-gray-100 mb-8 flex items-center justify-center">
                 <Home className="w-16 h-16 text-gray-300" />
@@ -176,7 +198,6 @@ export const HouseDetail = () => {
               </div>
               <div className="flex items-center gap-2 text-[#717182] mb-2">
                 <MapPin className="w-5 h-5" />
-                {/* ✅ Show exactAddress if unlocked, otherwise show public address + city */}
                 <span>
                   {listing.canViewContact && listing.exactAddress
                     ? listing.exactAddress
@@ -222,7 +243,7 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
 
-            {/* Rooms & Beds */}
+            {/* ── Rooms & Beds — room images also clickable ── */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Rooms & Beds</h3>
@@ -235,16 +256,36 @@ export const HouseDetail = () => {
                           EGP {room.pricePerBed.toLocaleString()}/bed/month
                         </span>
                       </div>
+
+                      {/* Room images — each clickable to open in new tab */}
                       {room.roomImages.length > 0 && (
-                        <div className="flex gap-2 mb-3 overflow-x-auto">
-                          {room.roomImages.map((img, i) => (
-                            <img key={i} src={prefixImage(img)} alt={`${room.name} ${i + 1}`}
-                              className="h-20 w-32 object-cover rounded flex-shrink-0"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
-                          ))}
+                        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+                          {room.roomImages.map((img, i) => {
+                            const src = prefixImage(img);
+                            return (
+                              <div
+                                key={i}
+                                className="relative flex-shrink-0 group cursor-zoom-in"
+                                onClick={() => openImageInTab(src)}
+                                title="Click to open full size"
+                              >
+                                <img
+                                  src={src}
+                                  alt={`${room.name} ${i + 1}`}
+                                  className="h-24 w-36 object-cover rounded transition-transform duration-150 group-hover:scale-[1.03]"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                />
+                                {/* Small zoom icon on hover */}
+                                <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/15 transition-colors duration-150 flex items-center justify-center">
+                                  <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 drop-shadow" />
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
+
+                      {/* Beds */}
                       <div className="flex flex-wrap gap-2">
                         {room.beds.map(bed => (
                           <button
@@ -271,12 +312,11 @@ export const HouseDetail = () => {
             </Card>
           </div>
 
-          {/* Sidebar */}
+          {/* ── Sidebar ── */}
           <div className="lg:col-span-1">
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
 
-                {/* Contact — unlocked after booking + payment */}
                 {listing.canViewContact ? (
                   <div className="space-y-3">
                     <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
@@ -289,10 +329,7 @@ export const HouseDetail = () => {
                     {listing.exactAddress && (
                       <div className="flex items-center gap-2 p-3 bg-[#B8E986]/10 rounded-lg">
                         <MapPin className="w-4 h-4 text-[#00A5A7]" />
-                        {/* ✅ Show full exact address including city */}
-                        <span className="text-[#34495E]">
-                          {listing.exactAddress}, {listing.city}
-                        </span>
+                        <span className="text-[#34495E]">{listing.exactAddress}, {listing.city}</span>
                       </div>
                     )}
                   </div>
@@ -358,6 +395,7 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
           </div>
+
         </div>
       </div>
     </div>
