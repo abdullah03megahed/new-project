@@ -5,6 +5,7 @@ import { api } from './api';
 
 export interface User {
   id: string;
+  accountId?: string; // GUID from JWT — used for GET /LandLord/Account/{accountId}
   type: 'student' | 'landlord' | 'admin';
   displayName: string;
   firstName: string;
@@ -30,7 +31,6 @@ export interface User {
   minBudget?: number;
   maxBudget?: number;
   sleepingHabits?: number;
-  accountId?: string; // JWT sub claim
 }
 
 export interface SignupPayload {
@@ -93,11 +93,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function roleToType(role?: string): 'student' | 'landlord' | 'admin' {
-  if (!role) return 'admin';
-  const r = role.trim().toLowerCase();
-  if (r.includes('student')) return 'student';
-  if (r.includes('landlord')) return 'landlord';
+function roleToType(role: string): 'student' | 'landlord' | 'admin' {
+  const r = role.toLowerCase();
+  if (r === 'student') return 'student';
+  if (r === 'landlord') return 'landlord';
   return 'admin';
 }
 
@@ -107,28 +106,25 @@ function genderToString(gender?: number): 'male' | 'female' | undefined {
   return undefined;
 }
 
-// Decode JWT to get the accountId (sub claim)
-function getAccountIdFromToken(token: string): string | null {
+// Extract the account GUID (sub claim) from the JWT token
+function getAccountIdFromToken(token: string): string {
   try {
-    const payload = token.split('.')[1];
-    const decoded = JSON.parse(atob(payload));
-    // ASP.NET Identity puts the user ID in different claims
+    const payload = JSON.parse(atob(token.split('.')[1]));
     return (
-      decoded['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'] ||
-      decoded['sub'] ||
-      decoded['nameid'] ||
-      null
+      payload.sub ||
+      payload['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'] ||
+      ''
     );
   } catch {
-    return null;
+    return '';
   }
 }
 
-function buildUserFromAuth(data: AuthResponse, accountId?: string): User {
+function buildUserFromAuth(data: AuthResponse, token: string): User {
   const nameParts = data.displayName?.split(' ') || ['', ''];
   return {
     id: '',
-    accountId: accountId || '',
+    accountId: getAccountIdFromToken(token),
     type: roleToType(data.role),
     displayName: data.displayName,
     firstName: nameParts[0] || data.displayName,
@@ -175,9 +171,33 @@ function mergeWithStudentProfile(base: User, p: StudentProfile): User {
   };
 }
 
+// ── Fetch landlord profile — tries Account/{accountId} first, falls back to Email ──
+async function fetchLandlordProfile(base: User): Promise<User> {
+  if (base.accountId) {
+    try {
+      const profile = await api.get<LandlordProfile>(`/LandLord/Account/${base.accountId}`);
+      if (profile?.id) return mergeWithLandlordProfile(base, profile);
+    } catch { /* fall through */ }
+  }
+  try {
+    const profile = await api.get<LandlordProfile>(`/LandLord/Email?email=${encodeURIComponent(base.email)}`);
+    if (profile?.id) return mergeWithLandlordProfile(base, profile);
+  } catch { /* continue with minimal data */ }
+  return base;
+}
+
+async function fetchStudentProfile(base: User): Promise<User> {
+  try {
+    const profile = await api.get<StudentProfile>(`/Student/Email?email=${encodeURIComponent(base.email)}`);
+    if (profile?.id) return mergeWithStudentProfile(base, profile);
+  } catch { /* continue with minimal data */ }
+  return base;
+}
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // Rehydrate synchronously — user is never null on first render if already logged in
   const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('user');
@@ -189,6 +209,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.getItem('token')
   );
 
+  // loading = true only while silently refreshing a stale profile in the background
   const [loading, setLoading] = useState(false);
 
   // On mount: if token exists but profile id is missing, re-fetch silently
@@ -200,31 +221,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let parsed: User;
     try { parsed = JSON.parse(storedUser); } catch { return; }
 
+    // Profile already complete — nothing to do
     if (parsed.id) return;
-
-    const accountId = parsed.accountId || getAccountIdFromToken(storedToken);
-    if (!accountId) return;
 
     setLoading(true);
     const refresh = async () => {
       try {
+        let updated: User;
         if (parsed.type === 'landlord') {
-          const profile = await api.get<LandlordProfile>(
-            `/LandLord/Account/${accountId}`
-          );
-          const updated = mergeWithLandlordProfile(parsed, profile);
-          setUser(updated);
-          localStorage.setItem('user', JSON.stringify(updated));
+          updated = await fetchLandlordProfile(parsed);
         } else if (parsed.type === 'student') {
-          const profile = await api.get<StudentProfile>(
-            `/Student/Account/${accountId}`
-          );
-          const updated = mergeWithStudentProfile(parsed, profile);
-          setUser(updated);
-          localStorage.setItem('user', JSON.stringify(updated));
+          updated = await fetchStudentProfile(parsed);
+        } else {
+          return;
         }
+        setUser(updated);
+        localStorage.setItem('user', JSON.stringify(updated));
       } catch {
-        // Keep cached user
+        // Keep cached user — don't log out just because refresh failed
       } finally {
         setLoading(false);
       }
@@ -234,27 +248,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (email: string, password: string) => {
     const data = await api.post<AuthResponse>('/Authentication/Login', { email, password });
-
     localStorage.setItem('token', data.token);
     setToken(data.token);
 
-    const accountId = getAccountIdFromToken(data.token);
-    let newUser = buildUserFromAuth(data, accountId || '');
+    let newUser = buildUserFromAuth(data, data.token);
 
-    if (newUser.type === 'landlord' && accountId) {
-      try {
-        const profile = await api.get<LandlordProfile>(
-          `/LandLord/Account/${accountId}`
-        );
-        newUser = mergeWithLandlordProfile(newUser, profile);
-      } catch { /* continue with minimal data */ }
-    } else if (newUser.type === 'student' && accountId) {
-      try {
-        const profile = await api.get<StudentProfile>(
-          `/Student/Account/${accountId}`
-        );
-        newUser = mergeWithStudentProfile(newUser, profile);
-      } catch { /* continue with minimal data */ }
+    if (newUser.type === 'landlord') {
+      newUser = await fetchLandlordProfile(newUser);
+    } else if (newUser.type === 'student') {
+      newUser = await fetchStudentProfile(newUser);
     }
 
     localStorage.setItem('user', JSON.stringify(newUser));
@@ -269,17 +271,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signup = async (payload: SignupPayload) => {
-    const data = await api.post<AuthResponse>(
-      '/Authentication/Register',
-      payload
-    );
-
-    const accountId = getAccountIdFromToken(data.token);
-    const newUser: User = {
-      ...buildUserFromAuth(data, accountId || ''),
-      type: payload.role === 'LandLord' ? 'landlord' : 'student',
-    };
-
+    const data = await api.post<AuthResponse>('/Authentication/Register', payload);
+    // Extract accountId from token immediately so CompleteProfile can use it
+    const newUser = buildUserFromAuth(data, data.token);
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(newUser));
     setToken(data.token);
