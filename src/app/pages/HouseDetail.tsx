@@ -24,7 +24,9 @@ interface Listing {
   furnished: boolean; wifiAvailable: boolean;
   numberOfRooms: number; genderPreference: number;
   status: number; publishedAt: string;
-  landlordId: number; landlordName: string;
+  landlordId: number;
+  landlordName?: string;        // may be empty from backend
+  landlord?: { firstName?: string; lastName?: string; name?: string };
   listingImages: string[]; rooms: Room[];
   canViewContact: boolean;
   landlordPhoneNumber: string | null;
@@ -38,6 +40,16 @@ const prefixImage = (img: string) => {
   if (!img) return '';
   if (img.startsWith('http://') || img.startsWith('https://')) return img;
   return `${IMAGE_BASE}${img.startsWith('/') ? img.slice(1) : img}`;
+};
+
+// Resolve landlord display name from whatever fields the backend provides
+const getLandlordName = (listing: Listing): string => {
+  if (listing.landlordName && listing.landlordName.trim()) return listing.landlordName;
+  if (listing.landlord?.name) return listing.landlord.name;
+  if (listing.landlord?.firstName || listing.landlord?.lastName) {
+    return `${listing.landlord.firstName || ''} ${listing.landlord.lastName || ''}`.trim();
+  }
+  return ''; // will be hidden if empty
 };
 
 // ─── Lightbox ─────────────────────────────────────────────────────────────────
@@ -75,10 +87,8 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
       style={{ backgroundColor: 'rgba(10, 15, 30, 0.95)' }}
       onClick={onClose}
     >
-      <button
-        onClick={onClose}
-        className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-      >
+      <button onClick={onClose}
+        className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
         <X className="w-5 h-5 text-white" />
       </button>
 
@@ -87,18 +97,14 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
       </div>
 
       {images.length > 1 && (
-        <button
-          onClick={(e) => { e.stopPropagation(); prev(); }}
-          className="absolute left-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-        >
+        <button onClick={(e) => { e.stopPropagation(); prev(); }}
+          className="absolute left-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
           <ChevronLeft className="w-6 h-6 text-white" />
         </button>
       )}
 
-      <div
-        className="max-w-5xl max-h-[85vh] w-full mx-16 flex items-center justify-center"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="max-w-5xl max-h-[85vh] w-full mx-16 flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}>
         <img
           src={prefixImage(images[current])}
           alt={`Image ${current + 1}`}
@@ -107,10 +113,8 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
       </div>
 
       {images.length > 1 && (
-        <button
-          onClick={(e) => { e.stopPropagation(); next(); }}
-          className="absolute right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-        >
+        <button onClick={(e) => { e.stopPropagation(); next(); }}
+          className="absolute right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
           <ChevronRight className="w-6 h-6 text-white" />
         </button>
       )}
@@ -118,13 +122,10 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
       {images.length > 1 && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 overflow-x-auto max-w-lg px-2">
           {images.map((img, i) => (
-            <button
-              key={i}
-              onClick={(e) => { e.stopPropagation(); setCurrent(i); }}
+            <button key={i} onClick={(e) => { e.stopPropagation(); setCurrent(i); }}
               className={`flex-shrink-0 w-14 h-10 rounded overflow-hidden border-2 transition-all ${
                 i === current ? 'border-white opacity-100' : 'border-transparent opacity-50 hover:opacity-75'
-              }`}
-            >
+              }`}>
               <img src={prefixImage(img)} alt="" className="w-full h-full object-cover" />
             </button>
           ))}
@@ -161,7 +162,7 @@ export const HouseDetail = () => {
   useEffect(() => {
     const fetchListing = async () => {
       try {
-        // ← Use getFresh to always get latest data, bypassing browser cache
+        // getFresh bypasses browser cache — always shows latest data after edits
         const data = await api.getFresh<Listing>(`/Listing/${id}`);
         setListing(data);
       } catch {
@@ -182,7 +183,6 @@ export const HouseDetail = () => {
     try {
       await api.post('/Booking/CreateBooking', { bedId: selectedBedId, startDate, endDate });
       toast.success('Booking created! Contact details are now unlocked.');
-      // Also use getFresh after booking so updated contact info loads immediately
       const updated = await api.getFresh<Listing>(`/Listing/${id}`);
       setListing(updated);
       setSelectedBedId(null);
@@ -208,7 +208,9 @@ export const HouseDetail = () => {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-[#34495E] mb-4">Listing not found</h2>
-          <Button onClick={() => navigate('/houses')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90">Back to Houses</Button>
+          <Button onClick={() => navigate('/houses')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90">
+            Back to Houses
+          </Button>
         </div>
       </div>
     );
@@ -226,6 +228,8 @@ export const HouseDetail = () => {
   const selectedBedPrice = listing.rooms
     .flatMap(r => r.beds.map(b => ({ ...b, price: r.pricePerBed })))
     .find(b => b.id === selectedBedId)?.price;
+
+  const landlordName = getLandlordName(listing);
 
   return (
     <div className="min-h-screen bg-white">
@@ -252,7 +256,7 @@ export const HouseDetail = () => {
           {/* Main Content */}
           <div className="lg:col-span-2">
 
-            {/* Carousel — click opens lightbox */}
+            {/* Carousel */}
             {allImages.length > 0 ? (
               <div className="mb-8">
                 <Carousel>
@@ -309,9 +313,12 @@ export const HouseDetail = () => {
                     : `${listing.address}, ${listing.city}`}
                 </span>
               </div>
-              <p className="text-[#717182] text-sm">
-                Listed by <span className="text-[#00A5A7]">{listing.landlordName}</span>
-              </p>
+              {/* Only show "Listed by" if name is available */}
+              {landlordName && (
+                <p className="text-[#717182] text-sm">
+                  Listed by <span className="text-[#00A5A7]">{landlordName}</span>
+                </p>
+              )}
             </div>
 
             {/* Quick Info */}
@@ -353,16 +360,17 @@ export const HouseDetail = () => {
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Rooms & Beds</h3>
                 <div className="space-y-4">
-                  {listing.rooms.map(room => (
+                  {listing.rooms.map((room, roomIndex) => (
                     <div key={room.id} className="border rounded-lg p-4">
                       <div className="flex justify-between items-center mb-3">
-                        <h4 className="text-[#34495E]">{room.name}</h4>
+                        {/* ← Use index+1 for display, not the backend room.name which may be "Room 2" */}
+                        <h4 className="text-[#34495E]">Room {roomIndex + 1}</h4>
                         <span className="text-[#FF6F61] font-semibold">
                           EGP {room.pricePerBed.toLocaleString()}/bed/month
                         </span>
                       </div>
 
-                      {/* Room images — click opens lightbox */}
+                      {/* Room images */}
                       {room.roomImages.length > 0 && (
                         <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
                           {room.roomImages.map((img, i) => (
@@ -373,7 +381,7 @@ export const HouseDetail = () => {
                             >
                               <img
                                 src={prefixImage(img)}
-                                alt={`${room.name} ${i + 1}`}
+                                alt={`Room ${roomIndex + 1} image ${i + 1}`}
                                 className="h-24 w-36 object-cover rounded transition-transform duration-150 group-hover:scale-[1.03]"
                                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                               />
@@ -439,6 +447,7 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
+                {/* Booking — students only */}
                 {user?.type === 'student' && (
                   <div className="space-y-3 border-t pt-4">
                     <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
@@ -450,11 +459,15 @@ export const HouseDetail = () => {
                     )}
                     <div className="space-y-2">
                       <Label>Start Date</Label>
-                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+                      <Input type="date" value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]} />
                     </div>
                     <div className="space-y-2">
                       <Label>End Date</Label>
-                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate || new Date().toISOString().split('T')[0]} />
+                      <Input type="date" value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        min={startDate || new Date().toISOString().split('T')[0]} />
                     </div>
                     <Button
                       onClick={handleBooking}
@@ -469,6 +482,7 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
+                {/* Property Details */}
                 <div className="border-t pt-4">
                   <h4 className="text-[#34495E] mb-3 font-medium">Property Details</h4>
                   <div className="space-y-2 text-sm text-[#717182]">
