@@ -10,10 +10,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Checkbox } from '../components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '../components/ui/alert-dialog';
 import { toast } from 'sonner';
 
 interface RoomInput {
-  existingId?: number;  // set when editing an existing room
+  existingId?: number;
   bedCount: number;
   pricePerBed: number;
   images: File[];
@@ -43,7 +48,6 @@ export const AddHouse = () => {
 
   const [listingImages, setListingImages] = useState<File[]>([]);
 
-  // Fetch existing listing when editing
   useEffect(() => {
     if (!editId) return;
     const fetchListing = async () => {
@@ -62,7 +66,7 @@ export const AddHouse = () => {
         });
         if (data.rooms?.length > 0) {
           setRooms(data.rooms.map((r: any) => ({
-            existingId: r.id,  // preserve room ID for PUT
+            existingId: r.id,
             bedCount: r.bedCount || 1,
             pricePerBed: r.pricePerBed || 0,
             images: [],
@@ -84,10 +88,26 @@ export const AddHouse = () => {
   }
 
   const addRoom = () => setRooms([...rooms, { bedCount: 1, pricePerBed: 0, images: [] }]);
-  const removeRoom = (index: number) => {
-    if (rooms.length === 1) return;
+
+  // Delete room — if it has an existingId, call DELETE /api/Listing/rooms/{roomId}
+  const removeRoom = async (index: number) => {
+    if (rooms.length === 1) {
+      toast.error('A listing must have at least one room.');
+      return;
+    }
+    const room = rooms[index];
+    if (room.existingId) {
+      try {
+        await api.delete(`/Listing/rooms/${room.existingId}`);
+        toast.success('Room deleted.');
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to delete room.');
+        return;
+      }
+    }
     setRooms(rooms.filter((_, i) => i !== index));
   };
+
   const updateRoom = (index: number, field: keyof RoomInput, value: any) => {
     setRooms(rooms.map((room, i) => i === index ? { ...room, [field]: value } : room));
   };
@@ -96,7 +116,6 @@ export const AddHouse = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      // ── Build main listing FormData ──────────────────────────────────────
       const fd = new FormData();
       fd.append('Title', formData.title);
       fd.append('Description', formData.description);
@@ -109,40 +128,32 @@ export const AddHouse = () => {
       listingImages.forEach(file => fd.append('ListingImages', file));
 
       if (editId) {
-        // ── Edit mode ──────────────────────────────────────────────────────
-
-        // 1. Update listing metadata via PUT (multipart)
-        // Only include NEW rooms (ones without existingId) in the main payload
+        // New rooms only in main PUT payload
         const newRooms = rooms.filter(r => !r.existingId);
         newRooms.forEach((room, index) => {
           fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
           fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
           room.images.forEach(file => fd.append(`Rooms[${index}].RoomImages`, file));
         });
+        await api.upload<any>(`/Listing/${editId}`, fd);
 
-        await api.uploadPut<any>(`/Listing/${editId}`, fd);
-
-        // 2. Update existing rooms via PUT /api/Listing/rooms/{roomId}
+        // Update existing rooms via PUT /api/Listing/rooms/{roomId}
         const existingRooms = rooms.filter(r => r.existingId);
-        await Promise.all(
-          existingRooms.map(async (room) => {
-            const roomFd = new FormData();
-            roomFd.append('BedCount', String(room.bedCount));
-            roomFd.append('PricePerBed', String(room.pricePerBed));
-            room.images.forEach(file => roomFd.append('RoomImages', file));
-            await api.uploadPut<any>(`/Listing/rooms/${room.existingId}`, roomFd);
-          })
-        );
+        await Promise.all(existingRooms.map(async (room) => {
+          const roomFd = new FormData();
+          roomFd.append('BedCount', String(room.bedCount));
+          roomFd.append('PricePerBed', String(room.pricePerBed));
+          room.images.forEach(file => roomFd.append('RoomImages', file));
+          await api.upload<any>(`/Listing/rooms/${room.existingId}`, roomFd);
+        }));
 
         toast.success('Property updated successfully!');
       } else {
-        // ── Create mode ────────────────────────────────────────────────────
         rooms.forEach((room, index) => {
           fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
           fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
           room.images.forEach(file => fd.append(`Rooms[${index}].RoomImages`, file));
         });
-
         await api.upload<any>('/Listing', fd);
         toast.success('Property added successfully!');
       }
@@ -242,8 +253,9 @@ export const AddHouse = () => {
                     <Plus className="w-4 h-4 mr-1" />Add Room
                   </Button>
                 </div>
+
                 {rooms.map((room, index) => (
-                  <Card key={index} className="border-[#B19CD9]/20">
+                  <Card key={room.existingId ?? `new-${index}`} className="border-[#B19CD9]/20">
                     <CardContent className="p-4 space-y-3">
                       <div className="flex justify-between items-center">
                         <h4 className="text-[#34495E] font-medium">
@@ -251,11 +263,40 @@ export const AddHouse = () => {
                           {room.existingId && <span className="text-xs text-[#717182] ml-2">(existing)</span>}
                         </h4>
                         {rooms.length > 1 && (
-                          <Button type="button" variant="ghost" size="sm" onClick={() => removeRoom(index)} className="text-[#FF6F61]">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          // Confirm before deleting an existing room
+                          room.existingId ? (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button type="button" variant="ghost" size="sm" className="text-[#FF6F61]">
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete this room?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete Room {index + 1} and all its beds. This cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => removeRoom(index)}
+                                    className="bg-[#FF6F61] hover:bg-[#FF6F61]/90"
+                                  >
+                                    Delete Room
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          ) : (
+                            <Button type="button" variant="ghost" size="sm" onClick={() => removeRoom(index)} className="text-[#FF6F61]">
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )
                         )}
                       </div>
+
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Number of Beds</Label>
@@ -266,6 +307,7 @@ export const AddHouse = () => {
                           <Input type="number" min="0" value={room.pricePerBed} onChange={(e) => updateRoom(index, 'pricePerBed', parseFloat(e.target.value))} required />
                         </div>
                       </div>
+
                       <div className="space-y-2">
                         <Label>Room Images (optional)</Label>
                         <input type="file" accept="image/*" multiple onChange={(e) => updateRoom(index, 'images', Array.from(e.target.files || []))} className="text-sm text-[#717182]" />
