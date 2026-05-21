@@ -135,7 +135,7 @@ export const AddHouse = () => {
           fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
           room.images.forEach(file => fd.append(`Rooms[${index}].RoomImages`, file));
         });
-        await api.upload<any>(`/Listing/${editId}`, fd);
+        await api.uploadPut<any>(`/Listing/${editId}`, fd);
 
         // Update existing rooms via PUT /api/Listing/rooms/{roomId}
         const existingRooms = rooms.filter(r => r.existingId);
@@ -144,7 +144,7 @@ export const AddHouse = () => {
           roomFd.append('BedCount', String(room.bedCount));
           roomFd.append('PricePerBed', String(room.pricePerBed));
           room.images.forEach(file => roomFd.append('RoomImages', file));
-          await api.upload<any>(`/Listing/rooms/${room.existingId}`, roomFd);
+          await api.uploadPut<any>(`/Listing/rooms/${room.existingId}`, roomFd);
         }));
 
         toast.success('Property updated successfully!');
