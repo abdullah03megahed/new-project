@@ -34,33 +34,33 @@ export const Houses = () => {
   const [searchParams] = useSearchParams();
   const [city, setCity] = useState(searchParams.get('search') || '');
   const [genderPreference, setGenderPreference] = useState('all');
-  // Default sort: '1' = PriceAsc (removed "Latest" option as requested)
   const [sortingOption, setSortingOption] = useState('1');
   const [listings, setListings] = useState<Listing[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [pageIndex, setPageIndex] = useState(1);
+  const [pageSize, setPageSize] = useState(10); // default 10, max 20
   const [loading, setLoading] = useState(true);
-  const pageSize = 12;
 
   const fetchListings = async (
     page = 1,
     overrideCity?: string,
     overrideGender?: string,
-    overrideSort?: string
+    overrideSort?: string,
+    overridePageSize?: number,
   ) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-
       const c = overrideCity !== undefined ? overrideCity : city;
       const g = overrideGender !== undefined ? overrideGender : genderPreference;
       const s = overrideSort !== undefined ? overrideSort : sortingOption;
+      const ps = overridePageSize !== undefined ? overridePageSize : pageSize;
 
       if (c.trim()) params.append('City', c.trim());
       if (g === '1' || g === '2') params.append('GenderPreference', g);
       params.append('SortingOption', s);
       params.append('PageIndex', String(page));
-      params.append('PageSize', String(pageSize));
+      params.append('PageSize', String(ps));
 
       const data = await api.get<PaginatedListings>(`/Listing?${params.toString()}`);
       setListings(data.data || []);
@@ -77,16 +77,22 @@ export const Houses = () => {
 
   useEffect(() => {
     fetchListings(1);
-  }, [genderPreference, sortingOption]);
+  }, [genderPreference, sortingOption, pageSize]);
 
   const handleSearch = () => fetchListings(1);
 
-  // Reset: clear filters AND immediately fetch all houses with defaults
   const handleReset = () => {
     setCity('');
     setGenderPreference('all');
     setSortingOption('1');
-    fetchListings(1, '', 'all', '1');
+    setPageSize(10);
+    fetchListings(1, '', 'all', '1', 10);
+  };
+
+  const handlePageSizeChange = (val: string) => {
+    const ps = parseInt(val);
+    setPageSize(ps);
+    setPageIndex(1);
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
@@ -100,6 +106,7 @@ export const Houses = () => {
         <div className="bg-white rounded-lg shadow-md p-4 mb-8">
           <div className="flex gap-3 flex-wrap items-end">
 
+            {/* City */}
             <div className="flex-1 min-w-[200px] space-y-1">
               <Label className="text-xs text-[#717182]">City</Label>
               <Input
@@ -111,6 +118,7 @@ export const Houses = () => {
               />
             </div>
 
+            {/* Gender Preference */}
             <div className="space-y-1">
               <Label className="text-xs text-[#717182]">Gender Preference</Label>
               <Select value={genderPreference} onValueChange={setGenderPreference}>
@@ -125,6 +133,7 @@ export const Houses = () => {
               </Select>
             </div>
 
+            {/* Sort */}
             <div className="space-y-1">
               <Label className="text-xs text-[#717182]">Sort By</Label>
               <Select value={sortingOption} onValueChange={setSortingOption}>
@@ -132,9 +141,24 @@ export const Houses = () => {
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
                 <SelectContent>
-                  {/* Removed "Latest" as requested */}
                   <SelectItem value="1">Price: Low to High</SelectItem>
                   <SelectItem value="2">Price: High to Low</SelectItem>
+                  <SelectItem value="3">Latest</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Per page — default 10, max 20 */}
+            <div className="space-y-1">
+              <Label className="text-xs text-[#717182]">Per Page</Label>
+              <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
+                <SelectTrigger className="h-11 w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="15">15</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -143,7 +167,6 @@ export const Houses = () => {
               <Search className="w-4 h-4 mr-2" />Search
             </Button>
 
-            {/* Reset — fetches all houses with defaults, doesn't empty the list */}
             {hasFilters && (
               <Button variant="ghost" onClick={handleReset} className="h-11 text-[#717182] hover:text-[#34495E]">
                 Reset
@@ -152,7 +175,7 @@ export const Houses = () => {
           </div>
 
           {/* Active filter tags */}
-          {(city.trim() || (genderPreference !== 'all' && genderPreference)) && (
+          {(city.trim() || genderPreference !== 'all') && (
             <div className="flex gap-2 mt-3 flex-wrap">
               {city.trim() && (
                 <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#00A5A7]/10 text-[#00A5A7] rounded-full text-sm">
@@ -160,7 +183,7 @@ export const Houses = () => {
                   <button onClick={() => { setCity(''); fetchListings(1, '', genderPreference, sortingOption); }} className="ml-1 hover:text-[#FF6F61]">×</button>
                 </span>
               )}
-              {genderPreference !== 'all' && genderPreference && (
+              {genderPreference !== 'all' && (
                 <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#B19CD9]/20 text-[#34495E] rounded-full text-sm">
                   {genderPreference === '1' ? 'Male Only' : 'Female Only'}
                   <button onClick={() => setGenderPreference('all')} className="ml-1 hover:text-[#FF6F61]">×</button>
@@ -171,18 +194,21 @@ export const Houses = () => {
         </div>
 
         {/* Results count */}
-        <div className="mb-6">
+        <div className="mb-6 flex items-center justify-between">
           <p className="text-[#717182]">
             {loading ? 'Searching...' : (
               <>Found <span className="text-[#00A5A7] font-medium">{totalCount}</span> {totalCount === 1 ? 'property' : 'properties'}</>
             )}
           </p>
+          {totalPages > 1 && (
+            <p className="text-[#717182] text-sm">Page {pageIndex} of {totalPages}</p>
+          )}
         </div>
 
         {/* Listings Grid */}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {Array.from({ length: 8 }).map((_, i) => (
+            {Array.from({ length: pageSize }).map((_, i) => (
               <div key={i} className="bg-white rounded-lg h-64 animate-pulse" />
             ))}
           </div>
@@ -193,11 +219,18 @@ export const Houses = () => {
                 <HouseCard key={listing.id} listing={listing} />
               ))}
             </div>
+
             {totalPages > 1 && (
               <div className="flex justify-center items-center gap-2 mt-10">
-                <Button variant="outline" disabled={pageIndex === 1} onClick={() => fetchListings(pageIndex - 1)}>Previous</Button>
-                <span className="px-4 text-[#717182] text-sm">Page {pageIndex} of {totalPages}</span>
-                <Button variant="outline" disabled={pageIndex === totalPages} onClick={() => fetchListings(pageIndex + 1)}>Next</Button>
+                <Button variant="outline" disabled={pageIndex === 1} onClick={() => fetchListings(pageIndex - 1)}>
+                  Previous
+                </Button>
+                <span className="px-4 text-[#717182] text-sm">
+                  Page {pageIndex} of {totalPages}
+                </span>
+                <Button variant="outline" disabled={pageIndex === totalPages} onClick={() => fetchListings(pageIndex + 1)}>
+                  Next
+                </Button>
               </div>
             )}
           </>
