@@ -89,7 +89,6 @@ export const AddHouse = () => {
 
   const addRoom = () => setRooms([...rooms, { bedCount: 1, pricePerBed: 0, images: [] }]);
 
-  // Delete room — if it has an existingId, call DELETE /api/Listing/rooms/{roomId}
   const removeRoom = async (index: number) => {
     if (rooms.length === 1) {
       toast.error('A listing must have at least one room.');
@@ -160,8 +159,7 @@ export const AddHouse = () => {
 
       navigate('/dashboard');
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to save listing.';
-      toast.error(message);
+      toast.error(err instanceof Error ? err.message : 'Failed to save listing.');
     } finally {
       setLoading(false);
     }
@@ -263,7 +261,6 @@ export const AddHouse = () => {
                           {room.existingId && <span className="text-xs text-[#717182] ml-2">(existing)</span>}
                         </h4>
                         {rooms.length > 1 && (
-                          // Confirm before deleting an existing room
                           room.existingId ? (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -275,15 +272,12 @@ export const AddHouse = () => {
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete this room?</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    This will permanently delete Room {index + 1} and all its beds. This cannot be undone.
+                                    This will permanently delete Room {index + 1} and all its beds.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => removeRoom(index)}
-                                    className="bg-[#FF6F61] hover:bg-[#FF6F61]/90"
-                                  >
+                                  <AlertDialogAction onClick={() => removeRoom(index)} className="bg-[#FF6F61] hover:bg-[#FF6F61]/90">
                                     Delete Room
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
@@ -300,11 +294,23 @@ export const AddHouse = () => {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label>Number of Beds</Label>
-                          <Input type="number" min="1" value={room.bedCount} onChange={(e) => updateRoom(index, 'bedCount', parseInt(e.target.value))} required />
+                          <Input
+                            type="number"
+                            min="1"
+                            value={isNaN(room.bedCount) ? '' : room.bedCount}
+                            onChange={(e) => updateRoom(index, 'bedCount', parseInt(e.target.value) || 1)}
+                            required
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label>Price Per Bed (EGP/month)</Label>
-                          <Input type="number" min="0" value={room.pricePerBed} onChange={(e) => updateRoom(index, 'pricePerBed', parseFloat(e.target.value))} required />
+                          <Input
+                            type="number"
+                            min="0"
+                            value={isNaN(room.pricePerBed) ? '' : room.pricePerBed}
+                            onChange={(e) => updateRoom(index, 'pricePerBed', parseFloat(e.target.value) || 0)}
+                            required
+                          />
                         </div>
                       </div>
 
