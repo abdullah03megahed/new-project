@@ -34,15 +34,13 @@ interface Listing {
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 const GENDER_LABELS: Record<number, string> = { 1: 'Male Only', 2: 'Female Only' };
 
-// ─── Image helpers ────────────────────────────────────────────────────────────
-
 const prefixImage = (img: string) => {
   if (!img) return '';
   if (img.startsWith('http://') || img.startsWith('https://')) return img;
   return `${IMAGE_BASE}${img.startsWith('/') ? img.slice(1) : img}`;
 };
 
-// ─── Lightbox Component ───────────────────────────────────────────────────────
+// ─── Lightbox ─────────────────────────────────────────────────────────────────
 
 interface LightboxProps {
   images: string[];
@@ -56,7 +54,6 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
   const prev = useCallback(() => setCurrent(i => (i - 1 + images.length) % images.length), [images.length]);
   const next = useCallback(() => setCurrent(i => (i + 1) % images.length), [images.length]);
 
-  // Keyboard navigation
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -67,7 +64,6 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose, prev, next]);
 
-  // Prevent body scroll
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
@@ -79,7 +75,6 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
       style={{ backgroundColor: 'rgba(10, 15, 30, 0.95)' }}
       onClick={onClose}
     >
-      {/* Close button */}
       <button
         onClick={onClose}
         className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
@@ -87,12 +82,10 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
         <X className="w-5 h-5 text-white" />
       </button>
 
-      {/* Counter */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm">
         {current + 1} / {images.length}
       </div>
 
-      {/* Prev button */}
       {images.length > 1 && (
         <button
           onClick={(e) => { e.stopPropagation(); prev(); }}
@@ -102,7 +95,6 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
         </button>
       )}
 
-      {/* Image */}
       <div
         className="max-w-5xl max-h-[85vh] w-full mx-16 flex items-center justify-center"
         onClick={(e) => e.stopPropagation()}
@@ -111,11 +103,9 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
           src={prefixImage(images[current])}
           alt={`Image ${current + 1}`}
           className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
-          onError={(e) => { (e.target as HTMLImageElement).src = ''; }}
         />
       </div>
 
-      {/* Next button */}
       {images.length > 1 && (
         <button
           onClick={(e) => { e.stopPropagation(); next(); }}
@@ -125,7 +115,6 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
         </button>
       )}
 
-      {/* Thumbnail strip */}
       {images.length > 1 && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 overflow-x-auto max-w-lg px-2">
           {images.map((img, i) => (
@@ -159,7 +148,6 @@ export const HouseDetail = () => {
   const [endDate, setEndDate] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
 
-  // Lightbox state
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -173,7 +161,8 @@ export const HouseDetail = () => {
   useEffect(() => {
     const fetchListing = async () => {
       try {
-        const data = await api.get<Listing>(`/Listing/${id}`);
+        // ← Use getFresh to always get latest data, bypassing browser cache
+        const data = await api.getFresh<Listing>(`/Listing/${id}`);
         setListing(data);
       } catch {
         toast.error('Failed to load listing.');
@@ -193,7 +182,8 @@ export const HouseDetail = () => {
     try {
       await api.post('/Booking/CreateBooking', { bedId: selectedBedId, startDate, endDate });
       toast.success('Booking created! Contact details are now unlocked.');
-      const updated = await api.get<Listing>(`/Listing/${id}`);
+      // Also use getFresh after booking so updated contact info loads immediately
+      const updated = await api.getFresh<Listing>(`/Listing/${id}`);
       setListing(updated);
       setSelectedBedId(null);
       setStartDate('');
@@ -240,7 +230,6 @@ export const HouseDetail = () => {
   return (
     <div className="min-h-screen bg-white">
 
-      {/* Lightbox */}
       {lightboxOpen && (
         <Lightbox
           images={lightboxImages}
@@ -263,7 +252,7 @@ export const HouseDetail = () => {
           {/* Main Content */}
           <div className="lg:col-span-2">
 
-            {/* Image Carousel — click opens lightbox */}
+            {/* Carousel — click opens lightbox */}
             {allImages.length > 0 ? (
               <div className="mb-8">
                 <Carousel>
@@ -280,7 +269,6 @@ export const HouseDetail = () => {
                             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
-                          {/* Hover overlay */}
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 flex items-center justify-center">
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/50 rounded-full p-3">
                               <ZoomIn className="w-6 h-6 text-white" />
@@ -429,7 +417,6 @@ export const HouseDetail = () => {
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
 
-                {/* Contact Info */}
                 {listing.canViewContact ? (
                   <div className="space-y-3">
                     <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
@@ -452,7 +439,6 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
-                {/* Booking */}
                 {user?.type === 'student' && (
                   <div className="space-y-3 border-t pt-4">
                     <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
@@ -483,7 +469,6 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
-                {/* Property Details */}
                 <div className="border-t pt-4">
                   <h4 className="text-[#34495E] mb-3 font-medium">Property Details</h4>
                   <div className="space-y-2 text-sm text-[#717182]">
