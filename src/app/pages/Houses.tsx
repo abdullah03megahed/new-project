@@ -143,7 +143,6 @@ export const Houses = () => {
                 <SelectContent>
                   <SelectItem value="1">Price: Low to High</SelectItem>
                   <SelectItem value="2">Price: High to Low</SelectItem>
-                  <SelectItem value="3">Latest</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -158,7 +157,6 @@ export const Houses = () => {
                 <SelectContent>
                   <SelectItem value="10">10</SelectItem>
                   <SelectItem value="15">15</SelectItem>
-                  <SelectItem value="20">20</SelectItem>
                 </SelectContent>
               </Select>
             </div>
