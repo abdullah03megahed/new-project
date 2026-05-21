@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { useNavigate } from 'react-router';
 import { Users, Home, BookOpen, Bed, MapPin, Trash2, Flag, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -43,6 +44,7 @@ const IMAGE_BASE = 'https://unimate.runasp.net/';
 
 export const Admin = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [landlords, setLandlords] = useState<LandlordItem[]>([]);
   const [students, setStudents] = useState<StudentItem[]>([]);
@@ -206,7 +208,7 @@ export const Admin = () => {
               <h2 className="text-[#34495E] mb-4">Recent Listings</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {stats.recentListings.map(listing => (
-                  <Card key={listing.id} className="overflow-hidden">
+                  <Card key={listing.id} className="overflow-hidden cursor-pointer hover:border-[#00A5A7] transition-colors" onClick={() => navigate(`/house/${listing.id}`)}>
                     {listing.listingImages[0] && (
                       <img src={`${IMAGE_BASE}${listing.listingImages[0]}`} alt={listing.title} className="w-full h-36 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                     )}
