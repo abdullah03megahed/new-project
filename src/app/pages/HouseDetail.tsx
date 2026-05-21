@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { api } from '../utils/api';
 import { useAuth } from '../utils/AuthContext';
@@ -7,9 +7,11 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users, ZoomIn } from 'lucide-react';
+import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users, X, ChevronLeft, ChevronRight, ZoomIn } from 'lucide-react';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '../components/ui/carousel';
 import { toast } from 'sonner';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface BedDto { id: number; bedNumber?: number; isBooked: boolean; }
 interface Room {
@@ -32,9 +34,118 @@ interface Listing {
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 const GENDER_LABELS: Record<number, string> = { 1: 'Male Only', 2: 'Female Only' };
 
-const openImageInTab = (src: string) => {
-  window.open(src, '_blank', 'noopener,noreferrer');
+// ─── Image helpers ────────────────────────────────────────────────────────────
+
+const prefixImage = (img: string) => {
+  if (!img) return '';
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  return `${IMAGE_BASE}${img.startsWith('/') ? img.slice(1) : img}`;
 };
+
+// ─── Lightbox Component ───────────────────────────────────────────────────────
+
+interface LightboxProps {
+  images: string[];
+  initialIndex: number;
+  onClose: () => void;
+}
+
+const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
+  const [current, setCurrent] = useState(initialIndex);
+
+  const prev = useCallback(() => setCurrent(i => (i - 1 + images.length) % images.length), [images.length]);
+  const next = useCallback(() => setCurrent(i => (i + 1) % images.length), [images.length]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') prev();
+      if (e.key === 'ArrowRight') next();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose, prev, next]);
+
+  // Prevent body scroll
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: 'rgba(10, 15, 30, 0.95)' }}
+      onClick={onClose}
+    >
+      {/* Close button */}
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+      >
+        <X className="w-5 h-5 text-white" />
+      </button>
+
+      {/* Counter */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm">
+        {current + 1} / {images.length}
+      </div>
+
+      {/* Prev button */}
+      {images.length > 1 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); prev(); }}
+          className="absolute left-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+        >
+          <ChevronLeft className="w-6 h-6 text-white" />
+        </button>
+      )}
+
+      {/* Image */}
+      <div
+        className="max-w-5xl max-h-[85vh] w-full mx-16 flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={prefixImage(images[current])}
+          alt={`Image ${current + 1}`}
+          className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+          onError={(e) => { (e.target as HTMLImageElement).src = ''; }}
+        />
+      </div>
+
+      {/* Next button */}
+      {images.length > 1 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); next(); }}
+          className="absolute right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+        >
+          <ChevronRight className="w-6 h-6 text-white" />
+        </button>
+      )}
+
+      {/* Thumbnail strip */}
+      {images.length > 1 && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 overflow-x-auto max-w-lg px-2">
+          {images.map((img, i) => (
+            <button
+              key={i}
+              onClick={(e) => { e.stopPropagation(); setCurrent(i); }}
+              className={`flex-shrink-0 w-14 h-10 rounded overflow-hidden border-2 transition-all ${
+                i === current ? 'border-white opacity-100' : 'border-transparent opacity-50 hover:opacity-75'
+              }`}
+            >
+              <img src={prefixImage(img)} alt="" className="w-full h-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export const HouseDetail = () => {
   const { id } = useParams();
@@ -47,6 +158,17 @@ export const HouseDetail = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
+
+  // Lightbox state
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  const openLightbox = (images: string[], index: number) => {
+    setLightboxImages(images);
+    setLightboxIndex(index);
+    setLightboxOpen(true);
+  };
 
   useEffect(() => {
     const fetchListing = async () => {
@@ -69,11 +191,7 @@ export const HouseDetail = () => {
     }
     setBookingLoading(true);
     try {
-      await api.post('/Booking/CreateBooking', {
-        bedId: selectedBedId,
-        startDate,
-        endDate,
-      });
+      await api.post('/Booking/CreateBooking', { bedId: selectedBedId, startDate, endDate });
       toast.success('Booking created! Contact details are now unlocked.');
       const updated = await api.get<Listing>(`/Listing/${id}`);
       setListing(updated);
@@ -106,9 +224,6 @@ export const HouseDetail = () => {
     );
   }
 
-  const prefixImage = (img: string) =>
-    img.startsWith('http') ? img : `${IMAGE_BASE}${img}`;
-
   const allImages = [
     ...listing.listingImages,
     ...listing.rooms.flatMap(r => r.roomImages),
@@ -124,6 +239,16 @@ export const HouseDetail = () => {
 
   return (
     <div className="min-h-screen bg-white">
+
+      {/* Lightbox */}
+      {lightboxOpen && (
+        <Lightbox
+          images={lightboxImages}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
+
       <div className="bg-[#B19CD9]/5 border-b">
         <div className="container mx-auto px-4 py-4">
           <Button variant="ghost" onClick={() => navigate('/houses')} className="text-[#34495E] hover:text-[#00A5A7]">
@@ -135,46 +260,40 @@ export const HouseDetail = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-          {/* ── Main Content ── */}
+          {/* Main Content */}
           <div className="lg:col-span-2">
 
-            {/* Image Carousel */}
+            {/* Image Carousel — click opens lightbox */}
             {allImages.length > 0 ? (
               <div className="mb-8">
                 <Carousel>
                   <CarouselContent>
-                    {allImages.map((image, index) => {
-                      const src = prefixImage(image);
-                      return (
-                        <CarouselItem key={index}>
-                          <div
-                            className="relative aspect-video rounded-lg overflow-hidden group cursor-zoom-in"
-                            onClick={() => openImageInTab(src)}
-                            title="Click to open full size"
-                          >
-                            <img
-                              src={src}
-                              alt={`${listing.title} - Image ${index + 1}`}
-                              className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200 flex items-end justify-end p-3">
-                              <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
-                                <ZoomIn className="w-3 h-3" />
-                                Open full size
-                              </span>
+                    {allImages.map((image, index) => (
+                      <CarouselItem key={index}>
+                        <div
+                          className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer"
+                          onClick={() => openLightbox(allImages, index)}
+                        >
+                          <img
+                            src={prefixImage(image)}
+                            alt={`${listing.title} - Image ${index + 1}`}
+                            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                          {/* Hover overlay */}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 flex items-center justify-center">
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/50 rounded-full p-3">
+                              <ZoomIn className="w-6 h-6 text-white" />
                             </div>
                           </div>
-                        </CarouselItem>
-                      );
-                    })}
+                        </div>
+                      </CarouselItem>
+                    ))}
                   </CarouselContent>
                   <CarouselPrevious className="left-4" />
                   <CarouselNext className="right-4" />
                 </Carousel>
-                <p className="text-xs text-[#717182] text-center mt-2">
-                  Click any image to open full size
-                </p>
+                <p className="text-xs text-[#717182] text-center mt-2">Click any image to view full size</p>
               </div>
             ) : (
               <div className="aspect-video rounded-lg bg-gray-100 mb-8 flex items-center justify-center">
@@ -196,7 +315,11 @@ export const HouseDetail = () => {
               </div>
               <div className="flex items-center gap-2 text-[#717182] mb-2">
                 <MapPin className="w-5 h-5" />
-                <span>{listing.address}, {listing.city}</span>
+                <span>
+                  {listing.canViewContact && listing.exactAddress
+                    ? `${listing.exactAddress}, ${listing.city}`
+                    : `${listing.address}, ${listing.city}`}
+                </span>
               </div>
               <p className="text-[#717182] text-sm">
                 Listed by <span className="text-[#00A5A7]">{listing.landlordName}</span>
@@ -251,30 +374,26 @@ export const HouseDetail = () => {
                         </span>
                       </div>
 
-                      {/* Room images */}
+                      {/* Room images — click opens lightbox */}
                       {room.roomImages.length > 0 && (
                         <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
-                          {room.roomImages.map((img, i) => {
-                            const src = prefixImage(img);
-                            return (
-                              <div
-                                key={i}
-                                className="relative flex-shrink-0 group cursor-zoom-in"
-                                onClick={() => openImageInTab(src)}
-                                title="Click to open full size"
-                              >
-                                <img
-                                  src={src}
-                                  alt={`${room.name} ${i + 1}`}
-                                  className="h-24 w-36 object-cover rounded transition-transform duration-150 group-hover:scale-[1.03]"
-                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                />
-                                <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/15 transition-colors duration-150 flex items-center justify-center">
-                                  <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 drop-shadow" />
-                                </div>
+                          {room.roomImages.map((img, i) => (
+                            <div
+                              key={i}
+                              className="relative flex-shrink-0 group cursor-pointer"
+                              onClick={() => openLightbox(room.roomImages, i)}
+                            >
+                              <img
+                                src={prefixImage(img)}
+                                alt={`${room.name} ${i + 1}`}
+                                className="h-24 w-36 object-cover rounded transition-transform duration-150 group-hover:scale-[1.03]"
+                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                              />
+                              <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 transition-colors duration-150 flex items-center justify-center">
+                                <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 drop-shadow" />
                               </div>
-                            );
-                          })}
+                            </div>
+                          ))}
                         </div>
                       )}
 
@@ -305,7 +424,7 @@ export const HouseDetail = () => {
             </Card>
           </div>
 
-          {/* ── Sidebar ── */}
+          {/* Sidebar */}
           <div className="lg:col-span-1">
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
@@ -326,12 +445,6 @@ export const HouseDetail = () => {
                         <span className="text-[#34495E]">{listing.exactAddress}, {listing.city}</span>
                       </div>
                     )}
-                    {listing.street && (
-                      <div className="flex items-center gap-2 p-3 bg-[#B8E986]/10 rounded-lg">
-                        <MapPin className="w-4 h-4 text-[#00A5A7]" />
-                        <span className="text-[#34495E]">{listing.street}</span>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div className="p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg text-sm text-[#717182]">
@@ -339,7 +452,7 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
-                {/* Booking — students only */}
+                {/* Booking */}
                 {user?.type === 'student' && (
                   <div className="space-y-3 border-t pt-4">
                     <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
@@ -381,6 +494,9 @@ export const HouseDetail = () => {
                       <span>City:</span><span className="text-[#34495E]">{listing.city}</span>
                     </div>
                     <div className="flex justify-between">
+                      <span>Street:</span><span className="text-[#34495E]">{listing.street}</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span>Furnished:</span><span className="text-[#34495E]">{listing.furnished ? 'Yes' : 'No'}</span>
                     </div>
                     <div className="flex justify-between">
@@ -389,11 +505,9 @@ export const HouseDetail = () => {
                     </div>
                   </div>
                 </div>
-
               </CardContent>
             </Card>
           </div>
-
         </div>
       </div>
     </div>
