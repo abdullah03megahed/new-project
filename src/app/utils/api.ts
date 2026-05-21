@@ -29,13 +29,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: res.statusText }));
-    // Show validation errors detail if present
-    if (error.errors) {
-      const messages = Object.entries(error.errors)
-        .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(', ')}`)
+
+    // Backend returns errors as array of strings: { errors: ["msg1", "msg2"] }
+    if (Array.isArray(error.errors)) {
+      throw new Error(error.errors.join(' | '));
+    }
+
+    // ASP.NET validation errors as object: { errors: { Field: ["msg"] } }
+    if (error.errors && typeof error.errors === 'object') {
+      const messages = Object.values(error.errors)
+        .flat()
         .join(' | ');
       throw new Error(messages);
     }
+
     throw new Error(error.errorMessage || error.message || `Request failed: ${res.status}`);
   }
 
@@ -43,7 +50,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
-// Shared multipart upload logic
+// Shared multipart upload logic — supports both POST and PUT
 async function multipartRequest<T>(path: string, method: 'POST' | 'PUT', formData: FormData): Promise<T> {
   const token = localStorage.getItem('token');
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -61,12 +68,15 @@ async function multipartRequest<T>(path: string, method: 'POST' | 'PUT', formDat
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: res.statusText }));
-    if (error.errors) {
-      const messages = Object.entries(error.errors)
-        .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(', ')}`)
-        .join(' | ');
+
+    if (Array.isArray(error.errors)) {
+      throw new Error(error.errors.join(' | '));
+    }
+    if (error.errors && typeof error.errors === 'object') {
+      const messages = Object.values(error.errors).flat().join(' | ');
       throw new Error(messages);
     }
+
     throw new Error(error.errorMessage || error.message || `Upload failed: ${res.status}`);
   }
 
@@ -81,9 +91,9 @@ export const api = {
   delete: <T>(path: string)                => request<T>(path, { method: 'DELETE' }),
   patch:  <T>(path: string, body: unknown) => request<T>(path, { method: 'PATCH',  body: JSON.stringify(body) }),
 
-  // Multipart POST (create)
-  upload: <T>(path: string, formData: FormData) => multipartRequest<T>(path, 'POST', formData),
+  // Multipart POST — create listing
+  upload:    <T>(path: string, formData: FormData) => multipartRequest<T>(path, 'POST', formData),
 
-  // Multipart PUT (edit) — fixes 405 Method Not Allowed on listing edit
-  uploadPut: <T>(path: string, formData: FormData) => multipartRequest<T>(path, 'PUT', formData),
+  // Multipart PUT — edit listing or room (fixes 405 Method Not Allowed)
+  uploadPut: <T>(path: string, formData: FormData) => multipartRequest<T>(path, 'PUT',  formData),
 };
