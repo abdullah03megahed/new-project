@@ -32,7 +32,6 @@ interface Listing {
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 const GENDER_LABELS: Record<number, string> = { 1: 'Male Only', 2: 'Female Only' };
 
-// ── Open image in a new tab so user can zoom natively ────────────────────────
 const openImageInTab = (src: string) => {
   window.open(src, '_blank', 'noopener,noreferrer');
 };
@@ -139,7 +138,7 @@ export const HouseDetail = () => {
           {/* ── Main Content ── */}
           <div className="lg:col-span-2">
 
-            {/* ── Listing image carousel — click any image to open in new tab ── */}
+            {/* Image Carousel */}
             {allImages.length > 0 ? (
               <div className="mb-8">
                 <Carousel>
@@ -159,7 +158,6 @@ export const HouseDetail = () => {
                               className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
                               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                             />
-                            {/* Zoom hint overlay */}
                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200 flex items-end justify-end p-3">
                               <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
                                 <ZoomIn className="w-3 h-3" />
@@ -198,11 +196,7 @@ export const HouseDetail = () => {
               </div>
               <div className="flex items-center gap-2 text-[#717182] mb-2">
                 <MapPin className="w-5 h-5" />
-                <span>
-                  {listing.canViewContact && listing.exactAddress
-                    ? listing.exactAddress
-                    : `${listing.address}, ${listing.city}`}
-                </span>
+                <span>{listing.address}, {listing.city}</span>
               </div>
               <p className="text-[#717182] text-sm">
                 Listed by <span className="text-[#00A5A7]">{listing.landlordName}</span>
@@ -243,7 +237,7 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
 
-            {/* ── Rooms & Beds — room images also clickable ── */}
+            {/* Rooms & Beds */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Rooms & Beds</h3>
@@ -257,7 +251,7 @@ export const HouseDetail = () => {
                         </span>
                       </div>
 
-                      {/* Room images — each clickable to open in new tab */}
+                      {/* Room images */}
                       {room.roomImages.length > 0 && (
                         <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
                           {room.roomImages.map((img, i) => {
@@ -275,7 +269,6 @@ export const HouseDetail = () => {
                                   className="h-24 w-36 object-cover rounded transition-transform duration-150 group-hover:scale-[1.03]"
                                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                                 />
-                                {/* Small zoom icon on hover */}
                                 <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/15 transition-colors duration-150 flex items-center justify-center">
                                   <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 drop-shadow" />
                                 </div>
@@ -317,6 +310,7 @@ export const HouseDetail = () => {
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
 
+                {/* Contact Info */}
                 {listing.canViewContact ? (
                   <div className="space-y-3">
                     <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
@@ -330,6 +324,12 @@ export const HouseDetail = () => {
                       <div className="flex items-center gap-2 p-3 bg-[#B8E986]/10 rounded-lg">
                         <MapPin className="w-4 h-4 text-[#00A5A7]" />
                         <span className="text-[#34495E]">{listing.exactAddress}, {listing.city}</span>
+                      </div>
+                    )}
+                    {listing.street && (
+                      <div className="flex items-center gap-2 p-3 bg-[#B8E986]/10 rounded-lg">
+                        <MapPin className="w-4 h-4 text-[#00A5A7]" />
+                        <span className="text-[#34495E]">{listing.street}</span>
                       </div>
                     )}
                   </div>
@@ -381,9 +381,6 @@ export const HouseDetail = () => {
                       <span>City:</span><span className="text-[#34495E]">{listing.city}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Street:</span><span className="text-[#34495E]">{listing.street}</span>
-                    </div>
-                    <div className="flex justify-between">
                       <span>Furnished:</span><span className="text-[#34495E]">{listing.furnished ? 'Yes' : 'No'}</span>
                     </div>
                     <div className="flex justify-between">
@@ -392,6 +389,7 @@ export const HouseDetail = () => {
                     </div>
                   </div>
                 </div>
+
               </CardContent>
             </Card>
           </div>
