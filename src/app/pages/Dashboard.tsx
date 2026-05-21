@@ -220,7 +220,7 @@ export const Dashboard = () => {
                     : null;
 
                   return (
-                    <div key={listing.id} className="flex flex-col md:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7] transition-colors">
+                    <div key={listing.id} className="flex flex-col md:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7] transition-colors cursor-pointer" onClick={() => navigate(`/house/${listing.id}`)}>
                       {coverImage ? (
                         <img
                           src={coverImage}
