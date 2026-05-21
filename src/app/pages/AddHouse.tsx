@@ -13,6 +13,7 @@ import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface RoomInput {
+  existingId?: number;  // set when editing an existing room
   bedCount: number;
   pricePerBed: number;
   images: File[];
@@ -33,7 +34,7 @@ export const AddHouse = () => {
     city: '',
     furnished: false,
     wifiAvailable: false,
-    genderPreference: '1', // ✅ default to 1 (Male Only) — backend rejects 0
+    genderPreference: '1',
   });
 
   const [rooms, setRooms] = useState<RoomInput[]>([
@@ -42,6 +43,7 @@ export const AddHouse = () => {
 
   const [listingImages, setListingImages] = useState<File[]>([]);
 
+  // Fetch existing listing when editing
   useEffect(() => {
     if (!editId) return;
     const fetchListing = async () => {
@@ -55,13 +57,12 @@ export const AddHouse = () => {
           city: data.city || '',
           furnished: data.furnished || false,
           wifiAvailable: data.wifiAvailable || false,
-          // ✅ fallback to '1' if value is 0 or missing
           genderPreference: data.genderPreference && data.genderPreference !== 0
-            ? String(data.genderPreference)
-            : '1',
+            ? String(data.genderPreference) : '1',
         });
         if (data.rooms?.length > 0) {
           setRooms(data.rooms.map((r: any) => ({
+            existingId: r.id,  // preserve room ID for PUT
             bedCount: r.bedCount || 1,
             pricePerBed: r.pricePerBed || 0,
             images: [],
@@ -95,6 +96,7 @@ export const AddHouse = () => {
     e.preventDefault();
     setLoading(true);
     try {
+      // ── Build main listing FormData ──────────────────────────────────────
       const fd = new FormData();
       fd.append('Title', formData.title);
       fd.append('Description', formData.description);
@@ -104,22 +106,47 @@ export const AddHouse = () => {
       fd.append('Furnished', String(formData.furnished));
       fd.append('WifiAvailable', String(formData.wifiAvailable));
       fd.append('GenderPreference', formData.genderPreference);
-
       listingImages.forEach(file => fd.append('ListingImages', file));
 
-      rooms.forEach((room, index) => {
-        fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
-        fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
-        room.images.forEach(file => fd.append(`Rooms[${index}].RoomImages`, file));
-      });
-
       if (editId) {
-         await api.uploadPut<any>(`/Listing/${editId}`, fd);  // ← PUT not POST
-         toast.success('Property updated successfully!');
-         } else {
-         await api.upload<any>('/Listing', fd);
-         toast.success('Property added successfully!');
-          }
+        // ── Edit mode ──────────────────────────────────────────────────────
+
+        // 1. Update listing metadata via PUT (multipart)
+        // Only include NEW rooms (ones without existingId) in the main payload
+        const newRooms = rooms.filter(r => !r.existingId);
+        newRooms.forEach((room, index) => {
+          fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
+          fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
+          room.images.forEach(file => fd.append(`Rooms[${index}].RoomImages`, file));
+        });
+
+        await api.uploadPut<any>(`/Listing/${editId}`, fd);
+
+        // 2. Update existing rooms via PUT /api/Listing/rooms/{roomId}
+        const existingRooms = rooms.filter(r => r.existingId);
+        await Promise.all(
+          existingRooms.map(async (room) => {
+            const roomFd = new FormData();
+            roomFd.append('BedCount', String(room.bedCount));
+            roomFd.append('PricePerBed', String(room.pricePerBed));
+            room.images.forEach(file => roomFd.append('RoomImages', file));
+            await api.uploadPut<any>(`/Listing/rooms/${room.existingId}`, roomFd);
+          })
+        );
+
+        toast.success('Property updated successfully!');
+      } else {
+        // ── Create mode ────────────────────────────────────────────────────
+        rooms.forEach((room, index) => {
+          fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
+          fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
+          room.images.forEach(file => fd.append(`Rooms[${index}].RoomImages`, file));
+        });
+
+        await api.upload<any>('/Listing', fd);
+        toast.success('Property added successfully!');
+      }
+
       navigate('/dashboard');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to save listing.';
@@ -142,6 +169,8 @@ export const AddHouse = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+
+              {/* Basic Info */}
               <div className="space-y-4">
                 <h3 className="text-[#34495E] font-medium">Basic Information</h3>
                 <div className="space-y-2">
@@ -157,7 +186,6 @@ export const AddHouse = () => {
                   <Select value={formData.genderPreference} onValueChange={(v) => setFormData({ ...formData, genderPreference: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {/* ✅ No "Any Gender" — backend only accepts 1 or 2 */}
                       <SelectItem value="1">Male Only</SelectItem>
                       <SelectItem value="2">Female Only</SelectItem>
                     </SelectContent>
@@ -175,6 +203,7 @@ export const AddHouse = () => {
                 </div>
               </div>
 
+              {/* Location */}
               <div className="space-y-4">
                 <h3 className="text-[#34495E] font-medium">Location</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -193,6 +222,7 @@ export const AddHouse = () => {
                 </div>
               </div>
 
+              {/* Listing Images */}
               <div className="space-y-4">
                 <h3 className="text-[#34495E] font-medium">Listing Images</h3>
                 <div className="border-2 border-dashed border-[#00A5A7]/30 rounded-lg p-6 text-center">
@@ -204,6 +234,7 @@ export const AddHouse = () => {
                 </div>
               </div>
 
+              {/* Rooms */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-[#34495E] font-medium">Rooms</h3>
@@ -215,7 +246,10 @@ export const AddHouse = () => {
                   <Card key={index} className="border-[#B19CD9]/20">
                     <CardContent className="p-4 space-y-3">
                       <div className="flex justify-between items-center">
-                        <h4 className="text-[#34495E] font-medium">Room {index + 1}</h4>
+                        <h4 className="text-[#34495E] font-medium">
+                          Room {index + 1}
+                          {room.existingId && <span className="text-xs text-[#717182] ml-2">(existing)</span>}
+                        </h4>
                         {rooms.length > 1 && (
                           <Button type="button" variant="ghost" size="sm" onClick={() => removeRoom(index)} className="text-[#FF6F61]">
                             <Trash2 className="w-4 h-4" />
@@ -242,6 +276,7 @@ export const AddHouse = () => {
                 ))}
               </div>
 
+              {/* Submit */}
               <div className="flex gap-4 pt-4">
                 <Button type="submit" disabled={loading} className="flex-1 bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
                   {loading ? 'Saving...' : editId ? 'Update Property' : 'Add Property'}
