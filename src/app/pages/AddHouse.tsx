@@ -19,8 +19,8 @@ import { toast } from 'sonner';
 
 interface RoomInput {
   existingId?: number;
-  bedCount: number;
-  pricePerBed: number;
+  bedCount: number | '';
+  pricePerBed: number | '';
   images: File[];
 }
 
@@ -118,7 +118,7 @@ export const AddHouse = () => {
       if (editId) {
         // ── EDIT MODE ──────────────────────────────────────────────────────
 
-        // 1. Update listing metadata via PUT (no rooms in payload)
+        // 1. Update listing metadata via PUT
         const fd = new FormData();
         fd.append('Title', formData.title);
         fd.append('Description', formData.description);
@@ -135,8 +135,8 @@ export const AddHouse = () => {
         const existingRooms = rooms.filter(r => r.existingId);
         await Promise.all(existingRooms.map(async (room) => {
           const roomFd = new FormData();
-          roomFd.append('BedCount', String(room.bedCount));
-          roomFd.append('PricePerBed', String(room.pricePerBed));
+          roomFd.append('BedCount', String(room.bedCount || 1));
+          roomFd.append('PricePerBed', String(room.pricePerBed || 0));
           room.images.forEach(file => roomFd.append('RoomImages', file));
           await api.uploadPut<any>(`/Listing/rooms/${room.existingId}`, roomFd);
         }));
@@ -145,8 +145,8 @@ export const AddHouse = () => {
         const newRooms = rooms.filter(r => !r.existingId);
         for (const room of newRooms) {
           const roomFd = new FormData();
-          roomFd.append('BedCount', String(room.bedCount));
-          roomFd.append('PricePerBed', String(room.pricePerBed));
+          roomFd.append('BedCount', String(room.bedCount || 1));
+          roomFd.append('PricePerBed', String(room.pricePerBed || 0));
           room.images.forEach(file => roomFd.append('RoomImages', file));
           await api.upload<any>(`/Listing/${editId}/rooms`, roomFd);
         }
@@ -165,8 +165,8 @@ export const AddHouse = () => {
         fd.append('GenderPreference', formData.genderPreference);
         listingImages.forEach(file => fd.append('ListingImages', file));
         rooms.forEach((room, index) => {
-          fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
-          fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
+          fd.append(`Rooms[${index}].BedCount`, String(room.bedCount || 1));
+          fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed || 0));
           room.images.forEach(file => fd.append(`Rooms[${index}].RoomImages`, file));
         });
         await api.upload<any>('/Listing', fd);
@@ -200,15 +200,31 @@ export const AddHouse = () => {
                 <h3 className="text-[#34495E] font-medium">Basic Information</h3>
                 <div className="space-y-2">
                   <Label htmlFor="title">Property Title</Label>
-                  <Input id="title" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g., Modern Apartment Near Campus" required />
+                  <Input
+                    id="title"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    placeholder="e.g., Modern Apartment Near Campus"
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Textarea id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe your property..." rows={4} required />
+                  <Textarea
+                    id="description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Describe your property..."
+                    rows={4}
+                    required
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="genderPreference">Gender Preference</Label>
-                  <Select value={formData.genderPreference} onValueChange={(v) => setFormData({ ...formData, genderPreference: v })}>
+                  <Select
+                    value={formData.genderPreference}
+                    onValueChange={(v) => setFormData({ ...formData, genderPreference: v })}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="1">Male Only</SelectItem>
@@ -218,11 +234,19 @@ export const AddHouse = () => {
                 </div>
                 <div className="flex gap-6">
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="furnished" checked={formData.furnished} onCheckedChange={(c) => setFormData({ ...formData, furnished: c === true })} />
+                    <Checkbox
+                      id="furnished"
+                      checked={formData.furnished}
+                      onCheckedChange={(c) => setFormData({ ...formData, furnished: c === true })}
+                    />
                     <Label htmlFor="furnished" className="cursor-pointer">Furnished</Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="wifi" checked={formData.wifiAvailable} onCheckedChange={(c) => setFormData({ ...formData, wifiAvailable: c === true })} />
+                    <Checkbox
+                      id="wifi"
+                      checked={formData.wifiAvailable}
+                      onCheckedChange={(c) => setFormData({ ...formData, wifiAvailable: c === true })}
+                    />
                     <Label htmlFor="wifi" className="cursor-pointer">WiFi Available</Label>
                   </div>
                 </div>
@@ -234,16 +258,34 @@ export const AddHouse = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="city">City</Label>
-                    <Input id="city" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} placeholder="e.g., Cairo" required />
+                    <Input
+                      id="city"
+                      value={formData.city}
+                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                      placeholder="e.g., Cairo"
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="street">Street</Label>
-                    <Input id="street" value={formData.street} onChange={(e) => setFormData({ ...formData, street: e.target.value })} placeholder="e.g., 15 Tahrir St" required />
+                    <Input
+                      id="street"
+                      value={formData.street}
+                      onChange={(e) => setFormData({ ...formData, street: e.target.value })}
+                      placeholder="e.g., 15 Tahrir St"
+                      required
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="address">Area / Neighborhood</Label>
-                  <Input id="address" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} placeholder="e.g., Nasr City (shown publicly)" required />
+                  <Input
+                    id="address"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    placeholder="e.g., Nasr City (shown publicly)"
+                    required
+                  />
                 </div>
               </div>
 
@@ -251,14 +293,25 @@ export const AddHouse = () => {
               <div className="space-y-4">
                 <h3 className="text-[#34495E] font-medium">Listing Images</h3>
                 <div className="border-2 border-dashed border-[#00A5A7]/30 rounded-lg p-6 text-center">
-                  <input type="file" accept="image/*" multiple onChange={(e) => setListingImages(Array.from(e.target.files || []))} className="hidden" id="listing-images" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => setListingImages(Array.from(e.target.files || []))}
+                    className="hidden"
+                    id="listing-images"
+                  />
                   <label htmlFor="listing-images" className="cursor-pointer">
                     <p className="text-[#717182] mb-2">
                       {listingImages.length > 0
                         ? `${listingImages.length} image(s) selected`
-                        : editId ? 'Upload new images (leave empty to keep existing)' : 'Click to upload listing images'}
+                        : editId
+                          ? 'Upload new images (leave empty to keep existing)'
+                          : 'Click to upload listing images'}
                     </p>
-                    <Button type="button" variant="outline" className="border-[#00A5A7] text-[#00A5A7]">Choose Images</Button>
+                    <Button type="button" variant="outline" className="border-[#00A5A7] text-[#00A5A7]">
+                      Choose Images
+                    </Button>
                   </label>
                 </div>
               </div>
@@ -267,7 +320,13 @@ export const AddHouse = () => {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-[#34495E] font-medium">Rooms</h3>
-                  <Button type="button" variant="outline" size="sm" onClick={addRoom} className="border-[#00A5A7] text-[#00A5A7]">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addRoom}
+                    className="border-[#00A5A7] text-[#00A5A7]"
+                  >
                     <Plus className="w-4 h-4 mr-1" />Add Room
                   </Button>
                 </div>
@@ -280,7 +339,9 @@ export const AddHouse = () => {
                           Room {index + 1}
                           {room.existingId
                             ? <span className="text-xs text-[#717182] ml-2">(existing)</span>
-                            : <span className="text-xs text-[#00A5A7] ml-2">(new)</span>
+                            : editId
+                              ? <span className="text-xs text-[#00A5A7] ml-2">(new)</span>
+                              : null
                           }
                         </h4>
                         {rooms.length > 1 && (
@@ -300,14 +361,23 @@ export const AddHouse = () => {
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => removeRoom(index)} className="bg-[#FF6F61] hover:bg-[#FF6F61]/90">
+                                  <AlertDialogAction
+                                    onClick={() => removeRoom(index)}
+                                    className="bg-[#FF6F61] hover:bg-[#FF6F61]/90"
+                                  >
                                     Delete Room
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
                           ) : (
-                            <Button type="button" variant="ghost" size="sm" onClick={() => removeRoom(index)} className="text-[#FF6F61]">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeRoom(index)}
+                              className="text-[#FF6F61]"
+                            >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           )
@@ -315,24 +385,43 @@ export const AddHouse = () => {
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
+                        {/* ── Number of Beds ── */}
                         <div className="space-y-2">
                           <Label>Number of Beds</Label>
                           <Input
-                            type="number" min="1"
-                            value={room.bedCount === 0 ? '' : isNaN(room.bedCount) ? '' : room.bedCount}
+                            type="number"
+                            min="1"
+                            value={room.bedCount === '' ? '' : room.bedCount}
                             onChange={(e) => {
-                               const val = e.target.value;
-                               updateRoom(index, 'bedCount', val === '' ? 1 : parseInt(val) || 1);
-                             }}
+                              const val = e.target.value;
+                              updateRoom(index, 'bedCount', val === '' ? '' : parseInt(val) || 1);
+                            }}
+                            onBlur={(e) => {
+                              // Ensure valid value on blur
+                              if (e.target.value === '' || parseInt(e.target.value) < 1) {
+                                updateRoom(index, 'bedCount', 1);
+                              }
+                            }}
                             required
                           />
                         </div>
+
+                        {/* ── Price Per Bed ── */}
                         <div className="space-y-2">
                           <Label>Price Per Bed (EGP/month)</Label>
                           <Input
-                            type="number" min="0"
-                            value={isNaN(room.pricePerBed) ? '' : room.pricePerBed}
-                            onChange={(e) => updateRoom(index, 'pricePerBed', parseFloat(e.target.value) || 0)}
+                            type="number"
+                            min="0"
+                            value={room.pricePerBed === '' ? '' : room.pricePerBed}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              updateRoom(index, 'pricePerBed', val === '' ? '' : parseFloat(val) || 0);
+                            }}
+                            onBlur={(e) => {
+                              if (e.target.value === '') {
+                                updateRoom(index, 'pricePerBed', 0);
+                              }
+                            }}
                             required
                           />
                         </div>
@@ -340,8 +429,16 @@ export const AddHouse = () => {
 
                       <div className="space-y-2">
                         <Label>Room Images (optional)</Label>
-                        <input type="file" accept="image/*" multiple onChange={(e) => updateRoom(index, 'images', Array.from(e.target.files || []))} className="text-sm text-[#717182]" />
-                        {room.images.length > 0 && <p className="text-xs text-[#00A5A7]">{room.images.length} image(s) selected</p>}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => updateRoom(index, 'images', Array.from(e.target.files || []))}
+                          className="text-sm text-[#717182]"
+                        />
+                        {room.images.length > 0 && (
+                          <p className="text-xs text-[#00A5A7]">{room.images.length} image(s) selected</p>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -350,10 +447,21 @@ export const AddHouse = () => {
 
               {/* Submit */}
               <div className="flex gap-4 pt-4">
-                <Button type="submit" disabled={loading} className="flex-1 bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
+                >
                   {loading ? 'Saving...' : editId ? 'Update Property' : 'Add Property'}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => navigate('/dashboard')} className="flex-1">Cancel</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate('/dashboard')}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
               </div>
             </form>
           </CardContent>
