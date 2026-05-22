@@ -28,6 +28,12 @@ interface Listing {
 
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 
+const prefixImage = (img: string) => {
+  if (!img) return '';
+  if (img.startsWith('http://') || img.startsWith('https://')) return img;
+  return `${IMAGE_BASE}${img.startsWith('/') ? img.slice(1) : img}`;
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const Dashboard = () => {
@@ -53,7 +59,6 @@ export const Dashboard = () => {
     );
   }
 
-  // Profile is incomplete if nationalId is missing
   const profileIncomplete = !user.nationalId;
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -90,7 +95,6 @@ export const Dashboard = () => {
     navigate('/add-house');
   };
 
-  // ── Stats calculated from listings (no fake API endpoint) ──────────────────
   const allBeds = listings.flatMap(l => l.rooms.flatMap(r => r.beds));
   const totalAvailableBeds = allBeds.filter(b => !b.isBooked).length;
   const totalBookedBeds = allBeds.filter(b => b.isBooked).length;
@@ -101,7 +105,7 @@ export const Dashboard = () => {
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
 
-        {/* ── Profile incomplete banner ── */}
+        {/* Profile incomplete banner */}
         {profileIncomplete && (
           <div className="mb-6 p-4 bg-[#FFC759]/10 border border-[#FFC759]/40 rounded-lg flex flex-col sm:flex-row items-start gap-3">
             <AlertCircle className="w-5 h-5 text-[#FFC759] flex-shrink-0 mt-0.5" />
@@ -128,12 +132,11 @@ export const Dashboard = () => {
             <p className="text-[#717182]">Manage your property listings</p>
           </div>
           <Button onClick={handleAddProperty} className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
-            <Plus className="w-5 h-5 mr-2" />
-            Add New Property
+            <Plus className="w-5 h-5 mr-2" />Add New Property
           </Button>
         </div>
 
-        {/* Stats — calculated from real listings data */}
+        {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -144,7 +147,6 @@ export const Dashboard = () => {
               <div className="text-[#34495E] text-3xl font-bold">{listings.length}</div>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-[#717182] text-sm">Available Beds</CardTitle>
@@ -154,7 +156,6 @@ export const Dashboard = () => {
               <div className="text-[#34495E] text-3xl font-bold">{totalAvailableBeds}</div>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-[#717182] text-sm">Booked Beds</CardTitle>
@@ -164,7 +165,6 @@ export const Dashboard = () => {
               <div className="text-[#34495E] text-3xl font-bold">{totalBookedBeds}</div>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-[#717182] text-sm">Starting From</CardTitle>
@@ -216,36 +216,46 @@ export const Dashboard = () => {
                   const availBeds = listing.rooms.flatMap(r => r.beds).filter(b => !b.isBooked).length;
                   const totalBeds = listing.rooms.flatMap(r => r.beds).length;
                   const coverImage = listing.listingImages[0]
-                    ? `${IMAGE_BASE}${listing.listingImages[0]}`
+                    ? prefixImage(listing.listingImages[0])
                     : null;
 
                   return (
-                    <div key={listing.id} className="flex flex-col md:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7] transition-colors cursor-pointer" onClick={() => navigate(`/house/${listing.id}`)}>
+                    <div
+                      key={listing.id}
+                      className="flex flex-col md:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7]/40 transition-colors"
+                    >
+                      {/* Cover image — not clickable */}
                       {coverImage ? (
                         <img
                           src={coverImage}
                           alt={listing.title}
-                          className="w-full md:w-48 h-32 object-cover rounded-lg"
+                          className="w-full md:w-48 h-32 object-cover rounded-lg flex-shrink-0"
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                         />
                       ) : (
-                        <div className="w-full md:w-48 h-32 bg-gray-100 rounded-lg flex items-center justify-center">
+                        <div className="w-full md:w-48 h-32 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
                           <Home className="w-8 h-8 text-gray-300" />
                         </div>
                       )}
 
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <h3 className="text-[#34495E] font-medium mb-1">{listing.title}</h3>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between mb-2 gap-2">
+                          <div className="min-w-0">
+                            {/* ✅ Only the title navigates to house detail */}
+                            <h3
+                              className="text-[#34495E] font-medium mb-1 hover:text-[#00A5A7] cursor-pointer truncate"
+                              onClick={() => navigate(`/house/${listing.id}`)}
+                            >
+                              {listing.title}
+                            </h3>
                             <div className="flex items-center gap-2 text-[#717182] text-sm">
-                              <MapPin className="w-4 h-4" />
-                              <span>{listing.address}, {listing.city}</span>
+                              <MapPin className="w-4 h-4 flex-shrink-0" />
+                              <span className="truncate">{listing.address}, {listing.city}</span>
                             </div>
                           </div>
-                          <Badge className={listing.status === 1
+                          <Badge className={`flex-shrink-0 ${listing.status === 1
                             ? 'bg-[#B8E986] text-[#34495E] border-0'
-                            : 'bg-gray-100 text-gray-500 border-0'}>
+                            : 'bg-gray-100 text-gray-500 border-0'}`}>
                             {listing.status === 1 ? 'Active' : 'Inactive'}
                           </Badge>
                         </div>
@@ -257,17 +267,23 @@ export const Dashboard = () => {
                         </div>
 
                         <div className="flex gap-2">
+                          {/* ✅ stopPropagation so clicking Edit doesn't trigger title navigation */}
                           <Button
-                            onClick={() => navigate(`/add-house?edit=${listing.id}`)}
+                            onClick={(e) => { e.stopPropagation(); navigate(`/add-house?edit=${listing.id}`); }}
                             variant="outline" size="sm"
-                            className="border-[#00A5A7] text-[#00A5A7]"
+                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
                           >
                             <Edit className="w-4 h-4 mr-2" />Edit
                           </Button>
+
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              <Button variant="outline" size="sm"
-                                className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
+                              {/* ✅ stopPropagation on trigger so dialog open doesn't navigate */}
+                              <Button
+                                onClick={(e) => e.stopPropagation()}
+                                variant="outline" size="sm"
+                                className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white"
+                              >
                                 <Trash2 className="w-4 h-4 mr-2" />Delete
                               </Button>
                             </AlertDialogTrigger>
@@ -275,13 +291,14 @@ export const Dashboard = () => {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  This will permanently delete this listing and cannot be undone.
+                                  This will permanently delete "{listing.title}" and cannot be undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                {/* ✅ stopPropagation on confirm action too */}
                                 <AlertDialogAction
-                                  onClick={() => handleDelete(listing.id)}
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(listing.id); }}
                                   className="bg-[#FF6F61] hover:bg-[#FF6F61]/90"
                                 >
                                   Delete
