@@ -52,8 +52,7 @@ export const AddHouse = () => {
     if (!editId) return;
     const fetchListing = async () => {
       try {
-        // Use getFresh to always load latest data when editing
-        const data = await api.getFresh<any>(`/Listing/${editId}`);
+        const data = await api.get<any>(`/Listing/${editId}`);
         setFormData({
           title: data.title || '',
           description: data.description || '',
@@ -116,43 +115,55 @@ export const AddHouse = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      const fd = new FormData();
-      fd.append('Title', formData.title);
-      fd.append('Description', formData.description);
-      fd.append('Address', formData.address);
-      fd.append('Street', formData.street);
-      fd.append('City', formData.city);
-      fd.append('Furnished', String(formData.furnished));
-      fd.append('WifiAvailable', String(formData.wifiAvailable));
-      fd.append('GenderPreference', formData.genderPreference);
-      listingImages.forEach(file => fd.append('ListingImages', file));
-
       if (editId) {
-        // Only include NEW rooms (no existingId) in the main listing PUT
-        const newRooms = rooms.filter(r => !r.existingId);
-        newRooms.forEach((room, index) => {
-          fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
-          fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
-          room.images.forEach(file => fd.append(`Rooms[${index}].RoomImages`, file));
-        });
+        // ── EDIT MODE ──────────────────────────────────────────────────────
 
-        // Update the listing metadata via multipart PUT
+        // 1. Update listing metadata via PUT (no rooms in payload)
+        const fd = new FormData();
+        fd.append('Title', formData.title);
+        fd.append('Description', formData.description);
+        fd.append('Address', formData.address);
+        fd.append('Street', formData.street);
+        fd.append('City', formData.city);
+        fd.append('Furnished', String(formData.furnished));
+        fd.append('WifiAvailable', String(formData.wifiAvailable));
+        fd.append('GenderPreference', formData.genderPreference);
+        listingImages.forEach(file => fd.append('ListingImages', file));
         await api.uploadPut<any>(`/Listing/${editId}`, fd);
 
-        // Update each existing room via PUT /api/Listing/rooms/{roomId} (multipart)
+        // 2. Update existing rooms via PUT /api/Listing/rooms/{roomId}
         const existingRooms = rooms.filter(r => r.existingId);
         await Promise.all(existingRooms.map(async (room) => {
           const roomFd = new FormData();
           roomFd.append('BedCount', String(room.bedCount));
           roomFd.append('PricePerBed', String(room.pricePerBed));
           room.images.forEach(file => roomFd.append('RoomImages', file));
-          // ← Must use uploadPut (PUT), not upload (POST)
           await api.uploadPut<any>(`/Listing/rooms/${room.existingId}`, roomFd);
         }));
 
+        // 3. Add NEW rooms via POST /api/Listing/{listingId}/rooms
+        const newRooms = rooms.filter(r => !r.existingId);
+        for (const room of newRooms) {
+          const roomFd = new FormData();
+          roomFd.append('BedCount', String(room.bedCount));
+          roomFd.append('PricePerBed', String(room.pricePerBed));
+          room.images.forEach(file => roomFd.append('RoomImages', file));
+          await api.upload<any>(`/Listing/${editId}/rooms`, roomFd);
+        }
+
         toast.success('Property updated successfully!');
       } else {
-        // Create new listing
+        // ── CREATE MODE ────────────────────────────────────────────────────
+        const fd = new FormData();
+        fd.append('Title', formData.title);
+        fd.append('Description', formData.description);
+        fd.append('Address', formData.address);
+        fd.append('Street', formData.street);
+        fd.append('City', formData.city);
+        fd.append('Furnished', String(formData.furnished));
+        fd.append('WifiAvailable', String(formData.wifiAvailable));
+        fd.append('GenderPreference', formData.genderPreference);
+        listingImages.forEach(file => fd.append('ListingImages', file));
         rooms.forEach((room, index) => {
           fd.append(`Rooms[${index}].BedCount`, String(room.bedCount));
           fd.append(`Rooms[${index}].PricePerBed`, String(room.pricePerBed));
@@ -189,20 +200,15 @@ export const AddHouse = () => {
                 <h3 className="text-[#34495E] font-medium">Basic Information</h3>
                 <div className="space-y-2">
                   <Label htmlFor="title">Property Title</Label>
-                  <Input id="title" value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="e.g., Modern Apartment Near Campus" required />
+                  <Input id="title" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g., Modern Apartment Near Campus" required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Textarea id="description" value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Describe your property..." rows={4} required />
+                  <Textarea id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe your property..." rows={4} required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="genderPreference">Gender Preference</Label>
-                  <Select value={formData.genderPreference}
-                    onValueChange={(v) => setFormData({ ...formData, genderPreference: v })}>
+                  <Select value={formData.genderPreference} onValueChange={(v) => setFormData({ ...formData, genderPreference: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="1">Male Only</SelectItem>
@@ -212,13 +218,11 @@ export const AddHouse = () => {
                 </div>
                 <div className="flex gap-6">
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="furnished" checked={formData.furnished}
-                      onCheckedChange={(c) => setFormData({ ...formData, furnished: c === true })} />
+                    <Checkbox id="furnished" checked={formData.furnished} onCheckedChange={(c) => setFormData({ ...formData, furnished: c === true })} />
                     <Label htmlFor="furnished" className="cursor-pointer">Furnished</Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="wifi" checked={formData.wifiAvailable}
-                      onCheckedChange={(c) => setFormData({ ...formData, wifiAvailable: c === true })} />
+                    <Checkbox id="wifi" checked={formData.wifiAvailable} onCheckedChange={(c) => setFormData({ ...formData, wifiAvailable: c === true })} />
                     <Label htmlFor="wifi" className="cursor-pointer">WiFi Available</Label>
                   </div>
                 </div>
@@ -230,22 +234,16 @@ export const AddHouse = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="city">City</Label>
-                    <Input id="city" value={formData.city}
-                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                      placeholder="e.g., Cairo" required />
+                    <Input id="city" value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} placeholder="e.g., Cairo" required />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="street">Street</Label>
-                    <Input id="street" value={formData.street}
-                      onChange={(e) => setFormData({ ...formData, street: e.target.value })}
-                      placeholder="e.g., 15 Tahrir St" required />
+                    <Input id="street" value={formData.street} onChange={(e) => setFormData({ ...formData, street: e.target.value })} placeholder="e.g., 15 Tahrir St" required />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="address">Area / Neighborhood</Label>
-                  <Input id="address" value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    placeholder="e.g., Nasr City (shown publicly)" required />
+                  <Input id="address" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} placeholder="e.g., Nasr City (shown publicly)" required />
                 </div>
               </div>
 
@@ -253,18 +251,14 @@ export const AddHouse = () => {
               <div className="space-y-4">
                 <h3 className="text-[#34495E] font-medium">Listing Images</h3>
                 <div className="border-2 border-dashed border-[#00A5A7]/30 rounded-lg p-6 text-center">
-                  <input type="file" accept="image/*" multiple
-                    onChange={(e) => setListingImages(Array.from(e.target.files || []))}
-                    className="hidden" id="listing-images" />
+                  <input type="file" accept="image/*" multiple onChange={(e) => setListingImages(Array.from(e.target.files || []))} className="hidden" id="listing-images" />
                   <label htmlFor="listing-images" className="cursor-pointer">
                     <p className="text-[#717182] mb-2">
                       {listingImages.length > 0
                         ? `${listingImages.length} image(s) selected`
                         : editId ? 'Upload new images (leave empty to keep existing)' : 'Click to upload listing images'}
                     </p>
-                    <Button type="button" variant="outline" className="border-[#00A5A7] text-[#00A5A7]">
-                      Choose Images
-                    </Button>
+                    <Button type="button" variant="outline" className="border-[#00A5A7] text-[#00A5A7]">Choose Images</Button>
                   </label>
                 </div>
               </div>
@@ -273,8 +267,7 @@ export const AddHouse = () => {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-[#34495E] font-medium">Rooms</h3>
-                  <Button type="button" variant="outline" size="sm" onClick={addRoom}
-                    className="border-[#00A5A7] text-[#00A5A7]">
+                  <Button type="button" variant="outline" size="sm" onClick={addRoom} className="border-[#00A5A7] text-[#00A5A7]">
                     <Plus className="w-4 h-4 mr-1" />Add Room
                   </Button>
                 </div>
@@ -285,9 +278,10 @@ export const AddHouse = () => {
                       <div className="flex justify-between items-center">
                         <h4 className="text-[#34495E] font-medium">
                           Room {index + 1}
-                          {room.existingId && (
-                            <span className="text-xs text-[#717182] ml-2">(existing)</span>
-                          )}
+                          {room.existingId
+                            ? <span className="text-xs text-[#717182] ml-2">(existing)</span>
+                            : <span className="text-xs text-[#00A5A7] ml-2">(new)</span>
+                          }
                         </h4>
                         {rooms.length > 1 && (
                           room.existingId ? (
@@ -306,18 +300,14 @@ export const AddHouse = () => {
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => removeRoom(index)}
-                                    className="bg-[#FF6F61] hover:bg-[#FF6F61]/90"
-                                  >
+                                  <AlertDialogAction onClick={() => removeRoom(index)} className="bg-[#FF6F61] hover:bg-[#FF6F61]/90">
                                     Delete Room
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
                           ) : (
-                            <Button type="button" variant="ghost" size="sm"
-                              onClick={() => removeRoom(index)} className="text-[#FF6F61]">
+                            <Button type="button" variant="ghost" size="sm" onClick={() => removeRoom(index)} className="text-[#FF6F61]">
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           )
@@ -329,11 +319,8 @@ export const AddHouse = () => {
                           <Label>Number of Beds</Label>
                           <Input
                             type="number" min="1"
-                            value={room.bedCount === ('' as any) ? '' : isNaN(Number(room.bedCount)) ? '' : room.bedCount}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              updateRoom(index, 'bedCount', val === '' ? '' as any : parseInt(val) || 1);
-                            }}
+                            value={isNaN(room.bedCount) ? '' : room.bedCount}
+                            onChange={(e) => updateRoom(index, 'bedCount', parseInt(e.target.value) || 1)}
                             required
                           />
                         </div>
@@ -350,12 +337,8 @@ export const AddHouse = () => {
 
                       <div className="space-y-2">
                         <Label>Room Images (optional)</Label>
-                        <input type="file" accept="image/*" multiple
-                          onChange={(e) => updateRoom(index, 'images', Array.from(e.target.files || []))}
-                          className="text-sm text-[#717182]" />
-                        {room.images.length > 0 && (
-                          <p className="text-xs text-[#00A5A7]">{room.images.length} image(s) selected</p>
-                        )}
+                        <input type="file" accept="image/*" multiple onChange={(e) => updateRoom(index, 'images', Array.from(e.target.files || []))} className="text-sm text-[#717182]" />
+                        {room.images.length > 0 && <p className="text-xs text-[#00A5A7]">{room.images.length} image(s) selected</p>}
                       </div>
                     </CardContent>
                   </Card>
@@ -364,13 +347,10 @@ export const AddHouse = () => {
 
               {/* Submit */}
               <div className="flex gap-4 pt-4">
-                <Button type="submit" disabled={loading}
-                  className="flex-1 bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
+                <Button type="submit" disabled={loading} className="flex-1 bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
                   {loading ? 'Saving...' : editId ? 'Update Property' : 'Add Property'}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => navigate('/dashboard')} className="flex-1">
-                  Cancel
-                </Button>
+                <Button type="button" variant="outline" onClick={() => navigate('/dashboard')} className="flex-1">Cancel</Button>
               </div>
             </form>
           </CardContent>
