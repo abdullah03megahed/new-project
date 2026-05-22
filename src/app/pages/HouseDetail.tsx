@@ -440,6 +440,12 @@ export const HouseDetail = () => {
                         <span className="text-[#34495E]">{listing.exactAddress}, {listing.city}</span>
                       </div>
                     )}
+                  {listing.street && (
+                     <div className="flex items-center gap-2 p-3 bg-[#B8E986]/10 rounded-lg">
+                        <MapPin className="w-4 h-4 text-[#00A5A7]" />
+                        <span className="text-[#34495E]">Street: {listing.street}</span>
+                     </div>
+                    )}
                   </div>
                 ) : (
                   <div className="p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg text-sm text-[#717182]">
@@ -491,9 +497,6 @@ export const HouseDetail = () => {
                     </div>
                     <div className="flex justify-between">
                       <span>City:</span><span className="text-[#34495E]">{listing.city}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Street:</span><span className="text-[#34495E]">{listing.street}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Furnished:</span><span className="text-[#34495E]">{listing.furnished ? 'Yes' : 'No'}</span>
