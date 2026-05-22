@@ -319,8 +319,11 @@ export const AddHouse = () => {
                           <Label>Number of Beds</Label>
                           <Input
                             type="number" min="1"
-                            value={isNaN(room.bedCount) ? '' : room.bedCount}
-                            onChange={(e) => updateRoom(index, 'bedCount', parseInt(e.target.value) || 1)}
+                            value={room.bedCount === 0 ? '' : isNaN(room.bedCount) ? '' : room.bedCount}
+                            onChange={(e) => {
+                               const val = e.target.value;
+                               updateRoom(index, 'bedCount', val === '' ? 1 : parseInt(val) || 1);
+                             }}
                             required
                           />
                         </div>
