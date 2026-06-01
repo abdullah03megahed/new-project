@@ -18,16 +18,18 @@ interface DashboardStats {
 
 interface Landlord {
   id: number; firstName: string; lastName: string;
-  email: string; phoneNumber?: string; status?: number;
+  email: string; phoneNumber?: string; nationalId?: string;
+  homeTown?: string; birthDate?: string; accountId?: string;
 }
 
 interface Student {
   id: number; firstName: string; lastName: string;
-  email: string; phoneNumber?: string;
+  email: string; phoneNumber?: string; gender?: number;
+  facultyField?: string; homeTown?: string; accountId?: string;
 }
 
 interface Report {
-  id?: number;
+  id?: number; // backend may or may not return this
   reporterId: string; reportedId: string; reason: string;
   status: number; type: number; createdAt: string;
 }
@@ -38,11 +40,11 @@ interface PaginatedReports {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const statusLabel = (s: number) => {
-  if (s === 1) return { label: 'Pending', color: 'bg-yellow-100 text-yellow-700 border-yellow-200', icon: <Clock className="w-3 h-3" /> };
-  if (s === 2) return { label: 'Resolved', color: 'bg-green-100 text-green-700 border-green-200', icon: <CheckCircle className="w-3 h-3" /> };
-  if (s === 3) return { label: 'Dismissed', color: 'bg-gray-100 text-gray-500 border-gray-200', icon: <XCircle className="w-3 h-3" /> };
-  return { label: 'Unknown', color: 'bg-gray-100 text-gray-500', icon: null };
+const statusInfo = (s: number) => {
+  if (s === 1) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  if (s === 2) return { label: 'Resolved',  color: 'bg-green-100 text-green-700 border-green-200' };
+  if (s === 3) return { label: 'Dismissed', color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -51,25 +53,39 @@ export const Admin = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'landlords' | 'students' | 'reports'>('overview');
 
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  // Overview
+  const [stats, setStats]         = useState<DashboardStats | null>(null);
   const [landlords, setLandlords] = useState<Landlord[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [students, setStudents]   = useState<Student[]>([]);
+  const [loading, setLoading]     = useState(true);
 
-  // Reports state
-  const [reports, setReports] = useState<Report[]>([]);
-  const [reportCount, setReportCount] = useState(0);
+  // Landlord search by email
+  const [landlordEmailInput, setLandlordEmailInput] = useState('');
+  const [foundLandlord, setFoundLandlord]           = useState<Landlord | null>(null);
+  const [landlordSearching, setLandlordSearching]   = useState(false);
+  const [landlordNotFound, setLandlordNotFound]     = useState(false);
+
+  // Student search by email
+  const [studentEmailInput, setStudentEmailInput] = useState('');
+  const [foundStudent, setFoundStudent]           = useState<Student | null>(null);
+  const [studentSearching, setStudentSearching]   = useState(false);
+  const [studentNotFound, setStudentNotFound]     = useState(false);
+
+  // All reports
+  const [reports, setReports]           = useState<Report[]>([]);
+  const [reportCount, setReportCount]   = useState(0);
   const [reportStatus, setReportStatus] = useState<string>('all');
-  const [reportsLoading, setReportsLoading] = useState(false);
-  const [updatingReport, setUpdatingReport] = useState<string | null>(null);
+  const [reportsLoading, setReportsLoading]   = useState(false);
+  const [updatingReport, setUpdatingReport]   = useState<string | null>(null);
 
-  // Reports by listing
-  const [listingIdInput, setListingIdInput] = useState('');
-  const [listingReports, setListingReports] = useState<Report[]>([]);
+  // Reports by listing (moved to top of reports tab)
+  const [listingIdInput, setListingIdInput]         = useState('');
+  const [listingReports, setListingReports]         = useState<Report[]>([]);
   const [listingReportsLoading, setListingReportsLoading] = useState(false);
-  const [searchedListingId, setSearchedListingId] = useState<string | null>(null);
+  const [searchedListingId, setSearchedListingId]   = useState<string | null>(null);
 
   // ── Auth guard ──────────────────────────────────────────────────────────────
+
   if (!user || user.type !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -78,28 +94,28 @@ export const Admin = () => {
     );
   }
 
-  // ── Fetch overview data ─────────────────────────────────────────────────────
+  // ── Fetch overview ──────────────────────────────────────────────────────────
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [statsData, landlordsData, studentsData] = await Promise.allSettled([
+        const [statsRes, landlordsRes, studentsRes] = await Promise.allSettled([
           api.get<DashboardStats>('/admin/dashboard'),
           api.get<Landlord[]>('/LandLord'),
           api.get<Student[]>('/Student'),
         ]);
-        if (statsData.status === 'fulfilled') setStats(statsData.value);
-        if (landlordsData.status === 'fulfilled') setLandlords(landlordsData.value || []);
-        if (studentsData.status === 'fulfilled') setStudents(studentsData.value || []);
+        if (statsRes.status    === 'fulfilled') setStats(statsRes.value);
+        if (landlordsRes.status === 'fulfilled') setLandlords(landlordsRes.value || []);
+        if (studentsRes.status  === 'fulfilled') setStudents(studentsRes.value || []);
       } catch { /* silently fail */ }
       finally { setLoading(false); }
     };
     fetchAll();
   }, []);
 
-  // ── Fetch all reports when tab/filter changes ───────────────────────────────
+  // ── Fetch reports ───────────────────────────────────────────────────────────
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
@@ -112,7 +128,7 @@ export const Admin = () => {
     try {
       const params = new URLSearchParams();
       if (reportStatus !== 'all') params.append('Status', reportStatus);
-      params.append('SortingOption', '2'); // newest first
+      params.append('SortingOption', '2');
       params.append('PageIndex', '1');
       params.append('PageSize', '50');
       const data = await api.get<PaginatedReports>(`/Report/GetAllReports?${params}`);
@@ -122,25 +138,75 @@ export const Admin = () => {
     finally { setReportsLoading(false); }
   };
 
-  const handleUpdateReport = async (reporterId: string, reportedId: string, newStatus: number) => {
-    const key = `${reporterId}-${reportedId}`;
+  // ── Handlers ────────────────────────────────────────────────────────────────
+
+  // Search landlord by email
+  const handleLandlordSearch = async () => {
+    if (!landlordEmailInput.trim()) return;
+    setLandlordSearching(true);
+    setFoundLandlord(null);
+    setLandlordNotFound(false);
+    try {
+      const data = await api.get<Landlord>(`/LandLord/Email?email=${encodeURIComponent(landlordEmailInput.trim())}`);
+      if (data?.id) {
+        setFoundLandlord(data);
+      } else {
+        setLandlordNotFound(true);
+      }
+    } catch {
+      setLandlordNotFound(true);
+    } finally {
+      setLandlordSearching(false);
+    }
+  };
+
+  // Search student by email
+  const handleStudentSearch = async () => {
+    if (!studentEmailInput.trim()) return;
+    setStudentSearching(true);
+    setFoundStudent(null);
+    setStudentNotFound(false);
+    try {
+      const data = await api.get<Student>(`/Student/Email?email=${encodeURIComponent(studentEmailInput.trim())}`);
+      if (data?.id) {
+        setFoundStudent(data);
+      } else {
+        setStudentNotFound(true);
+      }
+    } catch {
+      setStudentNotFound(true);
+    } finally {
+      setStudentSearching(false);
+    }
+  };
+
+  // Update report status — uses numeric report id if available
+  // The PUT /api/Report/UpdateReport/{id} expects an integer id in the path.
+  // Since GetAllReports may not return the id, we store index as fallback.
+  const handleUpdateReport = async (report: Report, reportIndex: number, newStatus: number) => {
+    // Use report.id if backend returns it, otherwise fall back to index+1 (not reliable)
+    const reportId = report.id ?? reportIndex + 1;
+    const key = `${report.reporterId}-${report.reportedId}`;
     setUpdatingReport(key);
     try {
-      // Use reportedId as the id param (string GUID) — adjust if backend uses integer id
-      await api.put(`/Report/UpdateReport/${reportedId}`, { status: newStatus });
+      await api.put(`/Report/UpdateReport/${reportId}`, { status: newStatus });
       toast.success('Report status updated.');
       await fetchReports();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update report.');
+      const msg = err instanceof Error ? err.message : 'Failed to update report.';
+      // If the id-based approach fails, tell admin the backend doesn't expose the id
+      toast.error(`${msg} — The backend may not return report IDs. Ask the backend team to include "id" in GetAllReports response.`);
     } finally {
       setUpdatingReport(null);
     }
   };
 
+  // Search reports by listing id
   const handleSearchByListing = async () => {
     if (!listingIdInput.trim()) return;
     setListingReportsLoading(true);
     setSearchedListingId(listingIdInput.trim());
+    setListingReports([]);
     try {
       const data = await api.get<PaginatedReports>(
         `/Report/GetReportsBylisting?listingId=${listingIdInput.trim()}&SortingOption=2&PageIndex=1&PageSize=50`
@@ -148,29 +214,30 @@ export const Admin = () => {
       setListingReports(data.data || []);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to fetch reports for this listing.');
-      setListingReports([]);
     } finally {
       setListingReportsLoading(false);
     }
   };
 
+  // Delete landlord
   const handleDeleteLandlord = async (id: number) => {
     try {
       await api.delete(`/LandLord/${id}`);
       setLandlords(landlords.filter(l => l.id !== id));
+      if (foundLandlord?.id === id) setFoundLandlord(null);
       toast.success('Landlord removed.');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to remove landlord.');
     }
   };
 
-  // ── Tabs config ─────────────────────────────────────────────────────────────
+  // ── Tab config ──────────────────────────────────────────────────────────────
 
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: TrendingUp },
-    { id: 'landlords', label: `Landlords (${landlords.length})`, icon: Home },
-    { id: 'students', label: `Students (${students.length})`, icon: Users },
-    { id: 'reports', label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`, icon: Flag },
+    { id: 'overview',  label: 'Overview',                                       icon: TrendingUp },
+    { id: 'landlords', label: `Landlords (${landlords.length})`,                icon: Home },
+    { id: 'students',  label: `Students (${students.length})`,                  icon: Users },
+    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`, icon: Flag },
   ] as const;
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -198,18 +265,16 @@ export const Admin = () => {
           })}
         </div>
 
-        {/* ── Overview ── */}
+        {/* ════════════ OVERVIEW ════════════ */}
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {loading ? (
-              [1, 2, 3, 4].map(i => <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />)
-            ) : (
-              <>
-                {[
-                  { label: 'Total Students', value: stats?.totalStudents ?? students.length, icon: <Users className="w-5 h-5 text-[#00A5A7]" /> },
-                  { label: 'Total Landlords', value: stats?.totalLandlords ?? landlords.length, icon: <Home className="w-5 h-5 text-[#B8E986]" /> },
-                  { label: 'Total Listings', value: stats?.totalListings ?? '—', icon: <TrendingUp className="w-5 h-5 text-[#FFC759]" /> },
-                  { label: 'Pending Reports', value: reportCount, icon: <Flag className="w-5 h-5 text-[#FF6F61]" /> },
+            {loading
+              ? [1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />)
+              : [
+                  { label: 'Total Students',  value: stats?.totalStudents  ?? students.length,  icon: <Users      className="w-5 h-5 text-[#00A5A7]" /> },
+                  { label: 'Total Landlords', value: stats?.totalLandlords ?? landlords.length, icon: <Home       className="w-5 h-5 text-[#B8E986]" /> },
+                  { label: 'Total Listings',  value: stats?.totalListings  ?? '—',              icon: <TrendingUp className="w-5 h-5 text-[#FFC759]" /> },
+                  { label: 'Total Reports',   value: reportCount,                               icon: <Flag       className="w-5 h-5 text-[#FF6F61]" /> },
                 ].map(({ label, value, icon }) => (
                   <Card key={label}>
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -220,79 +285,245 @@ export const Admin = () => {
                       <div className="text-[#34495E] text-3xl font-bold">{value}</div>
                     </CardContent>
                   </Card>
-                ))}
-              </>
-            )}
+                ))
+            }
           </div>
         )}
 
-        {/* ── Landlords ── */}
+        {/* ════════════ LANDLORDS ════════════ */}
         {activeTab === 'landlords' && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-[#34495E]">All Landlords</CardTitle>
-              <CardDescription>Manage registered landlords</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
-              ) : landlords.length === 0 ? (
-                <p className="text-[#717182] text-center py-8">No landlords found.</p>
-              ) : (
-                <div className="space-y-3">
-                  {landlords.map(l => (
-                    <div key={l.id} className="flex items-center justify-between p-4 border rounded-lg hover:border-[#00A5A7] transition-colors">
+          <div className="space-y-6">
+
+            {/* ── Search by email ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">Search Landlord by Email</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3">
+                  <Input
+                    placeholder="landlord@example.com"
+                    value={landlordEmailInput}
+                    onChange={(e) => { setLandlordEmailInput(e.target.value); setLandlordNotFound(false); }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleLandlordSearch()}
+                    className="max-w-sm"
+                  />
+                  <Button onClick={handleLandlordSearch} disabled={landlordSearching}
+                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                    <Search className="w-4 h-4 mr-2" />
+                    {landlordSearching ? 'Searching...' : 'Search'}
+                  </Button>
+                  {foundLandlord && (
+                    <Button variant="ghost" onClick={() => { setFoundLandlord(null); setLandlordEmailInput(''); }}
+                      className="text-[#717182]">
+                      Clear
+                    </Button>
+                  )}
+                </div>
+
+                {landlordNotFound && (
+                  <p className="text-sm text-[#FF6F61]">No landlord found with that email.</p>
+                )}
+
+                {foundLandlord && (
+                  <div className="p-4 border border-[#00A5A7]/30 rounded-lg bg-[#00A5A7]/5 space-y-2">
+                    <div className="flex items-start justify-between">
                       <div>
-                        <p className="font-medium text-[#34495E]">{l.firstName} {l.lastName}</p>
-                        <p className="text-sm text-[#717182]">{l.email}</p>
-                        {l.phoneNumber && <p className="text-sm text-[#717182]">{l.phoneNumber}</p>}
+                        <p className="font-semibold text-[#34495E]">{foundLandlord.firstName} {foundLandlord.lastName}</p>
+                        <p className="text-sm text-[#717182]">{foundLandlord.email}</p>
+                        {foundLandlord.phoneNumber && <p className="text-sm text-[#717182]">{foundLandlord.phoneNumber}</p>}
+                        {foundLandlord.homeTown && <p className="text-sm text-[#717182]">📍 {foundLandlord.homeTown}</p>}
+                        {foundLandlord.nationalId && <p className="text-sm text-[#717182]">ID: {foundLandlord.nationalId}</p>}
                       </div>
-                      <Button variant="outline" size="sm" onClick={() => handleDeleteLandlord(l.id)}
+                      <Button variant="outline" size="sm" onClick={() => handleDeleteLandlord(foundLandlord.id)}
                         className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
                         Remove
                       </Button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-        {/* ── Students ── */}
-        {activeTab === 'students' && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-[#34495E]">All Students</CardTitle>
-              <CardDescription>Registered students on the platform</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
-              ) : students.length === 0 ? (
-                <p className="text-[#717182] text-center py-8">No students found.</p>
-              ) : (
-                <div className="space-y-3">
-                  {students.map(s => (
-                    <div key={s.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
-                        <p className="font-medium text-[#34495E]">{s.firstName} {s.lastName}</p>
-                        <p className="text-sm text-[#717182]">{s.email}</p>
+            {/* ── All landlords list ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">All Landlords</CardTitle>
+                <CardDescription>All registered landlords</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
+                ) : landlords.length === 0 ? (
+                  <p className="text-[#717182] text-center py-8">No landlords found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {landlords.map(l => (
+                      <div key={l.id} className="flex items-center justify-between p-4 border rounded-lg hover:border-[#00A5A7] transition-colors">
+                        <div>
+                          <p className="font-medium text-[#34495E]">{l.firstName} {l.lastName}</p>
+                          <p className="text-sm text-[#717182]">{l.email}</p>
+                          {l.phoneNumber && <p className="text-sm text-[#717182]">{l.phoneNumber}</p>}
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => handleDeleteLandlord(l.id)}
+                          className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
+                          Remove
+                        </Button>
                       </div>
-                      <Badge variant="outline" className="text-[#00A5A7] border-[#00A5A7]">Student</Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
 
-        {/* ── Reports ── */}
+        {/* ════════════ STUDENTS ════════════ */}
+        {activeTab === 'students' && (
+          <div className="space-y-6">
+
+            {/* ── Search by email ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">Search Student by Email</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3">
+                  <Input
+                    placeholder="student@example.com"
+                    value={studentEmailInput}
+                    onChange={(e) => { setStudentEmailInput(e.target.value); setStudentNotFound(false); }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleStudentSearch()}
+                    className="max-w-sm"
+                  />
+                  <Button onClick={handleStudentSearch} disabled={studentSearching}
+                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                    <Search className="w-4 h-4 mr-2" />
+                    {studentSearching ? 'Searching...' : 'Search'}
+                  </Button>
+                  {foundStudent && (
+                    <Button variant="ghost" onClick={() => { setFoundStudent(null); setStudentEmailInput(''); }}
+                      className="text-[#717182]">
+                      Clear
+                    </Button>
+                  )}
+                </div>
+
+                {studentNotFound && (
+                  <p className="text-sm text-[#FF6F61]">No student found with that email.</p>
+                )}
+
+                {foundStudent && (
+                  <div className="p-4 border border-[#00A5A7]/30 rounded-lg bg-[#00A5A7]/5 space-y-1">
+                    <p className="font-semibold text-[#34495E]">{foundStudent.firstName} {foundStudent.lastName}</p>
+                    <p className="text-sm text-[#717182]">{foundStudent.email}</p>
+                    {foundStudent.phoneNumber && <p className="text-sm text-[#717182]">{foundStudent.phoneNumber}</p>}
+                    {foundStudent.facultyField && <p className="text-sm text-[#717182]">🎓 {foundStudent.facultyField}</p>}
+                    {foundStudent.homeTown && <p className="text-sm text-[#717182]">📍 {foundStudent.homeTown}</p>}
+                    {foundStudent.gender && (
+                      <p className="text-sm text-[#717182]">
+                        {foundStudent.gender === 1 ? 'Male' : foundStudent.gender === 2 ? 'Female' : ''}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ── All students list ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">All Students</CardTitle>
+                <CardDescription>All registered students</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
+                ) : students.length === 0 ? (
+                  <p className="text-[#717182] text-center py-8">No students found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {students.map(s => (
+                      <div key={s.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div>
+                          <p className="font-medium text-[#34495E]">{s.firstName} {s.lastName}</p>
+                          <p className="text-sm text-[#717182]">{s.email}</p>
+                          {s.facultyField && <p className="text-sm text-[#717182]">{s.facultyField}</p>}
+                        </div>
+                        <Badge variant="outline" className="text-[#00A5A7] border-[#00A5A7]">Student</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* ════════════ REPORTS ════════════ */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
 
-            {/* All Reports */}
+            {/* ── 1. Reports by Listing — at TOP ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">Search Reports by Listing</CardTitle>
+                <CardDescription>Look up all reports filed against a specific listing ID</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3">
+                  <Input
+                    placeholder="Listing ID (e.g. 6)"
+                    value={listingIdInput}
+                    onChange={(e) => setListingIdInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearchByListing()}
+                    className="max-w-xs"
+                  />
+                  <Button onClick={handleSearchByListing} disabled={listingReportsLoading}
+                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                    <Search className="w-4 h-4 mr-2" />
+                    {listingReportsLoading ? 'Searching...' : 'Search'}
+                  </Button>
+                  {searchedListingId && (
+                    <Button variant="ghost" onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
+                      className="text-[#717182]">
+                      Clear
+                    </Button>
+                  )}
+                </div>
+
+                {listingReportsLoading ? (
+                  <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
+                ) : searchedListingId && listingReports.length === 0 ? (
+                  <p className="text-sm text-[#717182]">No reports found for Listing #{searchedListingId}.</p>
+                ) : listingReports.length > 0 ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-[#717182] font-medium">
+                      {listingReports.length} report{listingReports.length !== 1 ? 's' : ''} for Listing #{searchedListingId}
+                    </p>
+                    {listingReports.map((report, i) => {
+                      const { label, color } = statusInfo(report.status);
+                      return (
+                        <div key={i} className="p-3 border rounded-lg space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={`${color} border text-xs`}>{label}</Badge>
+                            <span className="text-xs text-[#717182]">
+                              {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </span>
+                          </div>
+                          <p className="text-sm text-[#34495E]">{report.reason}</p>
+                          <p className="text-xs text-[#717182]">
+                            Reporter: <span className="font-mono">{report.reporterId?.slice(0, 8)}…</span>
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            {/* ── 2. All Reports ── */}
             <Card>
               <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
@@ -322,23 +553,26 @@ export const Admin = () => {
                 ) : (
                   <div className="space-y-4">
                     {reports.map((report, index) => {
-                      const { label, color } = statusLabel(report.status);
-                      const key = `${report.reporterId}-${report.reportedId}-${index}`;
+                      const { label, color } = statusInfo(report.status);
+                      const rowKey = `${report.reporterId}-${report.reportedId}-${index}`;
                       const isUpdating = updatingReport === `${report.reporterId}-${report.reportedId}`;
+                      const hasId = !!report.id;
+
                       return (
-                        <div key={key} className="p-4 border rounded-lg space-y-3">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="space-y-1 flex-1">
+                        <div key={rowKey} className="p-4 border rounded-lg space-y-3">
+                          <div className="flex items-start justify-between gap-4 flex-wrap">
+                            <div className="space-y-1 flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Badge className={`${color} border text-xs`}>{label}</Badge>
                                 <span className="text-xs text-[#717182]">
-                                  {new Date(report.createdAt).toLocaleDateString('en-GB', {
-                                    day: '2-digit', month: 'short', year: 'numeric',
-                                  })}
+                                  {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                                 </span>
                                 <span className="text-xs text-[#717182]">
-                                  {report.type === 1 ? '📋 Listing Report' : '👤 User Report'}
+                                  {report.type === 1 ? '📋 Listing' : '👤 User'}
                                 </span>
+                                {report.id && (
+                                  <span className="text-xs text-[#717182]">ID: #{report.id}</span>
+                                )}
                               </div>
                               <p className="text-sm text-[#34495E]">{report.reason}</p>
                               <p className="text-xs text-[#717182]">
@@ -346,22 +580,29 @@ export const Admin = () => {
                                 {' · '}
                                 Reported: <span className="font-mono">{report.reportedId?.slice(0, 8)}…</span>
                               </p>
+                              {!hasId && report.status === 1 && (
+                                <p className="text-xs text-[#FFC759]">
+                                  ⚠ Report ID not returned by API — ask backend to include "id" in GetAllReports response to enable status updates.
+                                </p>
+                              )}
                             </div>
 
-                            {report.status === 1 && (
+                            {/* Action buttons — only shown when report has an id AND is pending */}
+                            {report.status === 1 && hasId && (
                               <div className="flex gap-2 flex-shrink-0">
                                 <Button size="sm" disabled={isUpdating}
-                                  onClick={() => handleUpdateReport(report.reporterId, report.reportedId, 2)}
+                                  onClick={() => handleUpdateReport(report, index, 2)}
                                   className="bg-green-600 hover:bg-green-700 text-white">
                                   <CheckCircle className="w-4 h-4 mr-1" />Resolve
                                 </Button>
                                 <Button size="sm" variant="outline" disabled={isUpdating}
-                                  onClick={() => handleUpdateReport(report.reporterId, report.reportedId, 3)}
+                                  onClick={() => handleUpdateReport(report, index, 3)}
                                   className="border-gray-300 text-gray-500 hover:bg-gray-100">
                                   <XCircle className="w-4 h-4 mr-1" />Dismiss
                                 </Button>
                               </div>
                             )}
+
                             {report.status === 2 && (
                               <span className="flex items-center gap-1 text-green-600 text-sm flex-shrink-0">
                                 <CheckCircle className="w-4 h-4" />Resolved
@@ -378,60 +619,6 @@ export const Admin = () => {
                     })}
                   </div>
                 )}
-              </CardContent>
-            </Card>
-
-            {/* Reports by Listing */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-[#34495E]">Reports by Listing</CardTitle>
-                <CardDescription>Look up all reports filed against a specific listing</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-3">
-                  <Input
-                    placeholder="Enter Listing ID (e.g. 6)"
-                    value={listingIdInput}
-                    onChange={(e) => setListingIdInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearchByListing()}
-                    className="max-w-xs"
-                  />
-                  <Button onClick={handleSearchByListing} disabled={listingReportsLoading}
-                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
-                    <Search className="w-4 h-4 mr-2" />Search
-                  </Button>
-                </div>
-
-                {listingReportsLoading ? (
-                  <div className="space-y-3">{[1,2].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
-                ) : searchedListingId && listingReports.length === 0 ? (
-                  <p className="text-[#717182] text-sm">No reports found for Listing #{searchedListingId}.</p>
-                ) : listingReports.length > 0 ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-[#717182]">
-                      {listingReports.length} report{listingReports.length !== 1 ? 's' : ''} for Listing #{searchedListingId}
-                    </p>
-                    {listingReports.map((report, index) => {
-                      const { label, color } = statusLabel(report.status);
-                      return (
-                        <div key={index} className="p-3 border rounded-lg space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge className={`${color} border text-xs`}>{label}</Badge>
-                            <span className="text-xs text-[#717182]">
-                              {new Date(report.createdAt).toLocaleDateString('en-GB', {
-                                day: '2-digit', month: 'short', year: 'numeric',
-                              })}
-                            </span>
-                          </div>
-                          <p className="text-sm text-[#34495E]">{report.reason}</p>
-                          <p className="text-xs text-[#717182]">
-                            Reporter: <span className="font-mono">{report.reporterId?.slice(0, 8)}…</span>
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
               </CardContent>
             </Card>
           </div>
