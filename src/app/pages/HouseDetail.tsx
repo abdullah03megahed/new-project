@@ -14,6 +14,7 @@ import {
 import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users, X, ChevronLeft, ChevronRight, ZoomIn, Flag } from 'lucide-react';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '../components/ui/carousel';
 import { toast } from 'sonner';
+import { PaymentModal } from '../components/PaymentModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -212,9 +213,12 @@ export const HouseDetail = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
-
-  // Landlord: bookings on this listing to show student names
   const [bookings, setBookings] = useState<BookingInfo[]>([]);
+
+  // Payment modal state
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [pendingBookingId, setPendingBookingId] = useState<number | null>(null);
+  const [pendingAmount, setPendingAmount] = useState<number | undefined>(undefined);
 
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -240,7 +244,6 @@ export const HouseDetail = () => {
     if (id) fetchListing();
   }, [id]);
 
-  // Fetch bookings if landlord viewing their own listing
   useEffect(() => {
     if (!user || user.type !== 'landlord' || !id) return;
     const fetchBookings = async () => {
@@ -258,7 +261,7 @@ export const HouseDetail = () => {
     fetchBookings();
   }, [user, id]);
 
-  // ─── Booking + Payment ───────────────────────────────────────────────────────
+  // ─── Step 1: Create booking → open payment modal ──────────────────────────
 
   const handleBooking = async () => {
     if (!selectedBedId || !startDate || !endDate) {
@@ -267,7 +270,6 @@ export const HouseDetail = () => {
     }
     setBookingLoading(true);
     try {
-      // Step 1: Create booking → returns bookingId
       const bookingId = await api.post<number>('/Booking/CreateBooking', {
         bedId: selectedBedId,
         startDate,
@@ -275,21 +277,16 @@ export const HouseDetail = () => {
       });
 
       if (!bookingId) {
-        toast.error('Booking was created but no ID was returned. Please contact support.');
+        toast.error('Booking created but no ID returned. Please contact support.');
         return;
       }
 
-      toast.success('Booking created! Redirecting to payment...');
-
-      // Step 2: Initiate payment → returns payment URL
-      const paymentUrl = await api.post<string>(`/Payment/Pay-Booking/${bookingId}`, {});
-
-      if (paymentUrl) {
-        // Redirect to payment gateway — user returns to current page after payment
-        window.location.href = paymentUrl;
-      } else {
-        toast.error('No payment URL returned. Please try again.');
-      }
+      // Store the booking ID and open payment modal
+      setPendingBookingId(bookingId);
+      setPendingAmount(listing?.rooms
+        .flatMap(r => r.beds.map(b => ({ id: b.id, price: r.pricePerBed })))
+        .find(b => b.id === selectedBedId)?.price);
+      setPaymentOpen(true);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Booking failed.');
     } finally {
@@ -297,25 +294,27 @@ export const HouseDetail = () => {
     }
   };
 
-  // Report listing (student reports landlord)
+  // ─── Step 2: After successful payment, refresh listing ───────────────────
+
+  const handlePaymentSuccess = async () => {
+    toast.success('Booking confirmed! Contact details are now unlocked.');
+    const updated = await api.get<Listing>(`/Listing/${id}`);
+    setListing(updated);
+    setSelectedBedId(null);
+    setStartDate('');
+    setEndDate('');
+    setPendingBookingId(null);
+  };
+
   const handleReportListing = async (reason: string) => {
     if (!listing) return;
     const reportedId = listing.landlord?.accountId || String(listing.landlordId);
-    await api.post('/Report/CreateReport', {
-      reason,
-      reportedId,
-      listingId: listing.id,
-    });
+    await api.post('/Report/CreateReport', { reason, reportedId, listingId: listing.id });
   };
 
-  // Report student (landlord reports a student)
   const handleReportStudent = async (reason: string, studentAccountId: string) => {
     if (!listing) return;
-    await api.post('/Report/CreateReport', {
-      reason,
-      reportedId: studentAccountId,
-      listingId: listing.id,
-    });
+    await api.post('/Report/CreateReport', { reason, reportedId: studentAccountId, listingId: listing.id });
   };
 
   if (loading) {
@@ -345,13 +344,25 @@ export const HouseDetail = () => {
     .flatMap(r => r.beds.map(b => ({ ...b, price: r.pricePerBed })))
     .find(b => b.id === selectedBedId)?.price;
   const landlordName = getLandlordName(listing);
-
   const isOwnListing = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
 
   return (
     <div className="min-h-screen bg-white">
       {lightboxOpen && (
         <Lightbox images={lightboxImages} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />
+      )}
+
+      {/* Payment modal — opens after booking is created */}
+      {pendingBookingId && (
+        <PaymentModal
+          open={paymentOpen}
+          onClose={() => setPaymentOpen(false)}
+          onSuccess={handlePaymentSuccess}
+          type="booking"
+          resourceId={pendingBookingId}
+          label={`Booking for ${listing.title}`}
+          amount={pendingAmount}
+        />
       )}
 
       <div className="bg-[#B19CD9]/5 border-b">
@@ -398,7 +409,6 @@ export const HouseDetail = () => {
               </div>
             )}
 
-            {/* Title & Badges */}
             <div className="mb-6">
               <div className="flex items-start justify-between mb-2 flex-wrap gap-2">
                 <h1 className="text-[#34495E]">{listing.title}</h1>
@@ -421,7 +431,6 @@ export const HouseDetail = () => {
               )}
             </div>
 
-            {/* Quick Info */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -439,7 +448,6 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
 
-            {/* Description */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Description</h3>
@@ -447,7 +455,6 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
 
-            {/* Rooms & Beds */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Rooms & Beds</h3>
@@ -501,7 +508,6 @@ export const HouseDetail = () => {
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
 
-                {/* Contact Info */}
                 {listing.canViewContact ? (
                   <div className="space-y-3">
                     <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
@@ -530,7 +536,6 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
-                {/* Booking — students only */}
                 {user?.type === 'student' && (
                   <div className="space-y-3 border-t pt-4">
                     <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
@@ -555,7 +560,7 @@ export const HouseDetail = () => {
                       disabled={bookingLoading || !selectedBedId || !startDate || !endDate}
                       className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white h-12"
                     >
-                      {bookingLoading ? 'Processing...' : 'Book & Pay'}
+                      {bookingLoading ? 'Creating Booking...' : 'Book & Pay'}
                     </Button>
                     {!selectedBedId && (
                       <p className="text-[#717182] text-xs text-center">Select an available bed above to book</p>
@@ -563,7 +568,6 @@ export const HouseDetail = () => {
                   </div>
                 )}
 
-                {/* Property Details */}
                 <div className="border-t pt-4">
                   <h4 className="text-[#34495E] mb-3 font-medium">Property Details</h4>
                   <div className="space-y-2 text-sm text-[#717182]">
@@ -582,7 +586,6 @@ export const HouseDetail = () => {
                     </div>
                   </div>
 
-                  {/* Report button for STUDENT */}
                   {user?.type === 'student' && (
                     <div className="mt-4 pt-4 border-t">
                       <ReportModal
@@ -599,7 +602,6 @@ export const HouseDetail = () => {
                     </div>
                   )}
 
-                  {/* Report students for LANDLORD (own listing) */}
                   {isOwnListing && bookings.length > 0 && (
                     <div className="mt-4 pt-4 border-t space-y-3">
                       <h4 className="text-[#34495E] font-medium text-sm">Students in this listing</h4>
