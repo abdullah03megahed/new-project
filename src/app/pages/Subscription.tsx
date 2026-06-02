@@ -122,11 +122,19 @@ export const Subscription = () => {
   const handleSubscribe = async (planId: number, planName: string) => {
     setSubscribing(planId);
     try {
-      await api.post(`/Subscription/${planId}`, {});
-      toast.success(`Subscribed to ${planName} plan successfully!`);
-      // Refresh current subscription
-      const data = await api.get<SubscriptionDto>('/Subscription');
-      setCurrentSub(data);
+      // Step 1: Create the subscription → get back the subscription ID
+      const subscriptionId = await api.post<number>(`/Subscription/${planId}`, {});
+
+      // Step 2: Initiate payment → get back a payment URL
+      const paymentUrl = await api.post<string>(`/Payment/Pay-Subscription/${subscriptionId}`, {});
+
+      if (paymentUrl) {
+        toast.success(`Redirecting you to payment for ${planName}...`);
+        // Redirect to the payment gateway
+        window.location.href = paymentUrl;
+      } else {
+        toast.error('No payment URL returned. Please try again.');
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to subscribe.');
     } finally {
@@ -137,10 +145,18 @@ export const Subscription = () => {
   const handleRenew = async () => {
     setRenewing(true);
     try {
-      await api.put('/Subscription', {});
-      toast.success('Subscription renewed successfully!');
-      const data = await api.get<SubscriptionDto>('/Subscription');
-      setCurrentSub(data);
+      // Step 1: Renew the subscription → get back the new subscription ID
+      const subscriptionId = await api.put<number>('/Subscription', {});
+
+      // Step 2: Initiate payment → get back a payment URL
+      const paymentUrl = await api.post<string>(`/Payment/Pay-Subscription/${subscriptionId}`, {});
+
+      if (paymentUrl) {
+        toast.success('Redirecting you to payment...');
+        window.location.href = paymentUrl;
+      } else {
+        toast.error('No payment URL returned. Please try again.');
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to renew subscription.');
     } finally {
@@ -188,7 +204,7 @@ export const Subscription = () => {
                 variant="outline"
                 className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
               >
-                {renewing ? 'Renewing...' : 'Renew Plan'}
+                {renewing ? 'Processing...' : 'Renew Plan'}
               </Button>
             )}
           </div>
