@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Users, Home, TrendingUp, Flag, CheckCircle, Clock, XCircle, Search } from 'lucide-react';
+import { Users, Home, TrendingUp, Flag, CheckCircle, XCircle, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ interface Student {
 }
 
 interface Report {
-  id?: number; // backend may or may not return this
+  id?: number;
   reporterId: string; reportedId: string; reason: string;
   status: number; type: number; createdAt: string;
 }
@@ -59,30 +59,30 @@ export const Admin = () => {
   const [students, setStudents]   = useState<Student[]>([]);
   const [loading, setLoading]     = useState(true);
 
-  // Landlord search by email
+  // Landlord search
   const [landlordEmailInput, setLandlordEmailInput] = useState('');
   const [foundLandlord, setFoundLandlord]           = useState<Landlord | null>(null);
   const [landlordSearching, setLandlordSearching]   = useState(false);
   const [landlordNotFound, setLandlordNotFound]     = useState(false);
 
-  // Student search by email
+  // Student search
   const [studentEmailInput, setStudentEmailInput] = useState('');
   const [foundStudent, setFoundStudent]           = useState<Student | null>(null);
   const [studentSearching, setStudentSearching]   = useState(false);
   const [studentNotFound, setStudentNotFound]     = useState(false);
 
-  // All reports
-  const [reports, setReports]           = useState<Report[]>([]);
-  const [reportCount, setReportCount]   = useState(0);
-  const [reportStatus, setReportStatus] = useState<string>('all');
-  const [reportsLoading, setReportsLoading]   = useState(false);
-  const [updatingReport, setUpdatingReport]   = useState<string | null>(null);
+  // Reports
+  const [reports, setReports]               = useState<Report[]>([]);
+  const [reportCount, setReportCount]       = useState(0);
+  const [reportStatus, setReportStatus]     = useState<string>('all');
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [updatingReportIdx, setUpdatingReportIdx] = useState<number | null>(null);
 
-  // Reports by listing (moved to top of reports tab)
-  const [listingIdInput, setListingIdInput]         = useState('');
-  const [listingReports, setListingReports]         = useState<Report[]>([]);
+  // Reports by listing
+  const [listingIdInput, setListingIdInput]               = useState('');
+  const [listingReports, setListingReports]               = useState<Report[]>([]);
   const [listingReportsLoading, setListingReportsLoading] = useState(false);
-  const [searchedListingId, setSearchedListingId]   = useState<string | null>(null);
+  const [searchedListingId, setSearchedListingId]         = useState<string | null>(null);
 
   // ── Auth guard ──────────────────────────────────────────────────────────────
 
@@ -106,9 +106,9 @@ export const Admin = () => {
           api.get<Landlord[]>('/LandLord'),
           api.get<Student[]>('/Student'),
         ]);
-        if (statsRes.status    === 'fulfilled') setStats(statsRes.value);
+        if (statsRes.status     === 'fulfilled') setStats(statsRes.value);
         if (landlordsRes.status === 'fulfilled') setLandlords(landlordsRes.value || []);
-        if (studentsRes.status  === 'fulfilled') setStudents(studentsRes.value || []);
+        if (studentsRes.status  === 'fulfilled') setStudents(studentsRes.value  || []);
       } catch { /* silently fail */ }
       finally { setLoading(false); }
     };
@@ -121,6 +121,7 @@ export const Admin = () => {
   useEffect(() => {
     if (activeTab !== 'reports') return;
     fetchReports();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, reportStatus]);
 
   const fetchReports = async () => {
@@ -140,7 +141,6 @@ export const Admin = () => {
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
-  // Search landlord by email
   const handleLandlordSearch = async () => {
     if (!landlordEmailInput.trim()) return;
     setLandlordSearching(true);
@@ -148,19 +148,11 @@ export const Admin = () => {
     setLandlordNotFound(false);
     try {
       const data = await api.get<Landlord>(`/LandLord/Email?email=${encodeURIComponent(landlordEmailInput.trim())}`);
-      if (data?.id) {
-        setFoundLandlord(data);
-      } else {
-        setLandlordNotFound(true);
-      }
-    } catch {
-      setLandlordNotFound(true);
-    } finally {
-      setLandlordSearching(false);
-    }
+      data?.id ? setFoundLandlord(data) : setLandlordNotFound(true);
+    } catch { setLandlordNotFound(true); }
+    finally   { setLandlordSearching(false); }
   };
 
-  // Search student by email
   const handleStudentSearch = async () => {
     if (!studentEmailInput.trim()) return;
     setStudentSearching(true);
@@ -168,40 +160,60 @@ export const Admin = () => {
     setStudentNotFound(false);
     try {
       const data = await api.get<Student>(`/Student/Email?email=${encodeURIComponent(studentEmailInput.trim())}`);
-      if (data?.id) {
-        setFoundStudent(data);
-      } else {
-        setStudentNotFound(true);
-      }
-    } catch {
-      setStudentNotFound(true);
-    } finally {
-      setStudentSearching(false);
+      data?.id ? setFoundStudent(data) : setStudentNotFound(true);
+    } catch { setStudentNotFound(true); }
+    finally   { setStudentSearching(false); }
+  };
+
+  const handleDeleteLandlord = async (id: number) => {
+    if (!confirm('Remove this landlord? This cannot be undone.')) return;
+    try {
+      await api.delete(`/LandLord/${id}`);
+      setLandlords(prev => prev.filter(l => l.id !== id));
+      if (foundLandlord?.id === id) setFoundLandlord(null);
+      toast.success('Landlord removed.');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove landlord.');
     }
   };
 
-  // Update report status — uses numeric report id if available
-  // The PUT /api/Report/UpdateReport/{id} expects an integer id in the path.
-  // Since GetAllReports may not return the id, we store index as fallback.
-  const handleUpdateReport = async (report: Report, reportIndex: number, newStatus: number) => {
-    // Use report.id if backend returns it, otherwise fall back to index+1 (not reliable)
-    const reportId = report.id ?? reportIndex + 1;
-    const key = `${report.reporterId}-${report.reportedId}`;
-    setUpdatingReport(key);
+  // ── NEW: delete student ─────────────────────────────────────────────────────
+  const handleDeleteStudent = async (id: number) => {
+    if (!confirm('Remove this student? This cannot be undone.')) return;
+    try {
+      await api.delete(`/Student/${id}`);
+      setStudents(prev => prev.filter(s => s.id !== id));
+      if (foundStudent?.id === id) setFoundStudent(null);
+      toast.success('Student removed.');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove student.');
+    }
+  };
+
+  // ── Update report status ────────────────────────────────────────────────────
+  // The backend's GetAllReports schema doesn't include "id" in the Swagger example,
+  // but the actual response may include it. We try report.id first, then fall back
+  // to using the list index + 1 as a best-effort attempt.
+  const handleUpdateReport = async (report: Report, index: number, newStatus: number) => {
+    const reportId = report.id ?? index + 1;
+    setUpdatingReportIdx(index);
     try {
       await api.put(`/Report/UpdateReport/${reportId}`, { status: newStatus });
-      toast.success('Report status updated.');
+      toast.success(newStatus === 2 ? 'Report marked as resolved.' : 'Report dismissed.');
       await fetchReports();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to update report.';
-      // If the id-based approach fails, tell admin the backend doesn't expose the id
-      toast.error(`${msg} — The backend may not return report IDs. Ask the backend team to include "id" in GetAllReports response.`);
+      // If it failed and we used a guessed ID, explain the issue
+      if (!report.id) {
+        toast.error('Update failed — the backend does not return report IDs in GetAllReports. Ask the backend team to include the "id" field in the response.');
+      } else {
+        toast.error(msg);
+      }
     } finally {
-      setUpdatingReport(null);
+      setUpdatingReportIdx(null);
     }
   };
 
-  // Search reports by listing id
   const handleSearchByListing = async () => {
     if (!listingIdInput.trim()) return;
     setListingReportsLoading(true);
@@ -219,25 +231,13 @@ export const Admin = () => {
     }
   };
 
-  // Delete landlord
-  const handleDeleteLandlord = async (id: number) => {
-    try {
-      await api.delete(`/LandLord/${id}`);
-      setLandlords(landlords.filter(l => l.id !== id));
-      if (foundLandlord?.id === id) setFoundLandlord(null);
-      toast.success('Landlord removed.');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to remove landlord.');
-    }
-  };
-
   // ── Tab config ──────────────────────────────────────────────────────────────
 
   const tabs = [
-    { id: 'overview',  label: 'Overview',                                       icon: TrendingUp },
-    { id: 'landlords', label: `Landlords (${landlords.length})`,                icon: Home },
-    { id: 'students',  label: `Students (${students.length})`,                  icon: Users },
-    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`, icon: Flag },
+    { id: 'overview',  label: 'Overview',                                                  icon: TrendingUp },
+    { id: 'landlords', label: `Landlords (${landlords.length})`,                           icon: Home },
+    { id: 'students',  label: `Students (${students.length})`,                             icon: Users },
+    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`,     icon: Flag },
   ] as const;
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -293,8 +293,6 @@ export const Admin = () => {
         {/* ════════════ LANDLORDS ════════════ */}
         {activeTab === 'landlords' && (
           <div className="space-y-6">
-
-            {/* ── Search by email ── */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Landlord by Email</CardTitle>
@@ -315,25 +313,21 @@ export const Admin = () => {
                   </Button>
                   {foundLandlord && (
                     <Button variant="ghost" onClick={() => { setFoundLandlord(null); setLandlordEmailInput(''); }}
-                      className="text-[#717182]">
-                      Clear
-                    </Button>
+                      className="text-[#717182]">Clear</Button>
                   )}
                 </div>
 
-                {landlordNotFound && (
-                  <p className="text-sm text-[#FF6F61]">No landlord found with that email.</p>
-                )}
+                {landlordNotFound && <p className="text-sm text-[#FF6F61]">No landlord found with that email.</p>}
 
                 {foundLandlord && (
-                  <div className="p-4 border border-[#00A5A7]/30 rounded-lg bg-[#00A5A7]/5 space-y-2">
+                  <div className="p-4 border border-[#00A5A7]/30 rounded-lg bg-[#00A5A7]/5">
                     <div className="flex items-start justify-between">
-                      <div>
+                      <div className="space-y-1">
                         <p className="font-semibold text-[#34495E]">{foundLandlord.firstName} {foundLandlord.lastName}</p>
                         <p className="text-sm text-[#717182]">{foundLandlord.email}</p>
                         {foundLandlord.phoneNumber && <p className="text-sm text-[#717182]">{foundLandlord.phoneNumber}</p>}
-                        {foundLandlord.homeTown && <p className="text-sm text-[#717182]">📍 {foundLandlord.homeTown}</p>}
-                        {foundLandlord.nationalId && <p className="text-sm text-[#717182]">ID: {foundLandlord.nationalId}</p>}
+                        {foundLandlord.homeTown    && <p className="text-sm text-[#717182]">📍 {foundLandlord.homeTown}</p>}
+                        {foundLandlord.nationalId  && <p className="text-sm text-[#717182]">ID: {foundLandlord.nationalId}</p>}
                       </div>
                       <Button variant="outline" size="sm" onClick={() => handleDeleteLandlord(foundLandlord.id)}
                         className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
@@ -345,7 +339,6 @@ export const Admin = () => {
               </CardContent>
             </Card>
 
-            {/* ── All landlords list ── */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">All Landlords</CardTitle>
@@ -381,8 +374,6 @@ export const Admin = () => {
         {/* ════════════ STUDENTS ════════════ */}
         {activeTab === 'students' && (
           <div className="space-y-6">
-
-            {/* ── Search by email ── */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Student by Email</CardTitle>
@@ -403,34 +394,36 @@ export const Admin = () => {
                   </Button>
                   {foundStudent && (
                     <Button variant="ghost" onClick={() => { setFoundStudent(null); setStudentEmailInput(''); }}
-                      className="text-[#717182]">
-                      Clear
-                    </Button>
+                      className="text-[#717182]">Clear</Button>
                   )}
                 </div>
 
-                {studentNotFound && (
-                  <p className="text-sm text-[#FF6F61]">No student found with that email.</p>
-                )}
+                {studentNotFound && <p className="text-sm text-[#FF6F61]">No student found with that email.</p>}
 
                 {foundStudent && (
-                  <div className="p-4 border border-[#00A5A7]/30 rounded-lg bg-[#00A5A7]/5 space-y-1">
-                    <p className="font-semibold text-[#34495E]">{foundStudent.firstName} {foundStudent.lastName}</p>
-                    <p className="text-sm text-[#717182]">{foundStudent.email}</p>
-                    {foundStudent.phoneNumber && <p className="text-sm text-[#717182]">{foundStudent.phoneNumber}</p>}
-                    {foundStudent.facultyField && <p className="text-sm text-[#717182]">🎓 {foundStudent.facultyField}</p>}
-                    {foundStudent.homeTown && <p className="text-sm text-[#717182]">📍 {foundStudent.homeTown}</p>}
-                    {foundStudent.gender && (
-                      <p className="text-sm text-[#717182]">
-                        {foundStudent.gender === 1 ? 'Male' : foundStudent.gender === 2 ? 'Female' : ''}
-                      </p>
-                    )}
+                  <div className="p-4 border border-[#00A5A7]/30 rounded-lg bg-[#00A5A7]/5">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <p className="font-semibold text-[#34495E]">{foundStudent.firstName} {foundStudent.lastName}</p>
+                        <p className="text-sm text-[#717182]">{foundStudent.email}</p>
+                        {foundStudent.phoneNumber  && <p className="text-sm text-[#717182]">{foundStudent.phoneNumber}</p>}
+                        {foundStudent.facultyField && <p className="text-sm text-[#717182]">🎓 {foundStudent.facultyField}</p>}
+                        {foundStudent.homeTown     && <p className="text-sm text-[#717182]">📍 {foundStudent.homeTown}</p>}
+                        {foundStudent.gender && (
+                          <p className="text-sm text-[#717182]">{foundStudent.gender === 1 ? 'Male' : 'Female'}</p>
+                        )}
+                      </div>
+                      {/* ── Remove button for searched student ── */}
+                      <Button variant="outline" size="sm" onClick={() => handleDeleteStudent(foundStudent.id)}
+                        className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
+                        Remove
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            {/* ── All students list ── */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">All Students</CardTitle>
@@ -444,13 +437,17 @@ export const Admin = () => {
                 ) : (
                   <div className="space-y-3">
                     {students.map(s => (
-                      <div key={s.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div key={s.id} className="flex items-center justify-between p-4 border rounded-lg hover:border-[#00A5A7] transition-colors">
                         <div>
                           <p className="font-medium text-[#34495E]">{s.firstName} {s.lastName}</p>
                           <p className="text-sm text-[#717182]">{s.email}</p>
                           {s.facultyField && <p className="text-sm text-[#717182]">{s.facultyField}</p>}
                         </div>
-                        <Badge variant="outline" className="text-[#00A5A7] border-[#00A5A7]">Student</Badge>
+                        {/* ── Remove button for each student in the list ── */}
+                        <Button variant="outline" size="sm" onClick={() => handleDeleteStudent(s.id)}
+                          className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
+                          Remove
+                        </Button>
                       </div>
                     ))}
                   </div>
@@ -464,7 +461,7 @@ export const Admin = () => {
         {activeTab === 'reports' && (
           <div className="space-y-6">
 
-            {/* ── 1. Reports by Listing — at TOP ── */}
+            {/* ── Search by listing — TOP ── */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Reports by Listing</CardTitle>
@@ -486,9 +483,7 @@ export const Admin = () => {
                   </Button>
                   {searchedListingId && (
                     <Button variant="ghost" onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
-                      className="text-[#717182]">
-                      Clear
-                    </Button>
+                      className="text-[#717182]">Clear</Button>
                   )}
                 </div>
 
@@ -523,7 +518,7 @@ export const Admin = () => {
               </CardContent>
             </Card>
 
-            {/* ── 2. All Reports ── */}
+            {/* ── All Reports ── */}
             <Card>
               <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
@@ -554,12 +549,10 @@ export const Admin = () => {
                   <div className="space-y-4">
                     {reports.map((report, index) => {
                       const { label, color } = statusInfo(report.status);
-                      const rowKey = `${report.reporterId}-${report.reportedId}-${index}`;
-                      const isUpdating = updatingReport === `${report.reporterId}-${report.reportedId}`;
-                      const hasId = !!report.id;
+                      const isUpdating = updatingReportIdx === index;
 
                       return (
-                        <div key={rowKey} className="p-4 border rounded-lg space-y-3">
+                        <div key={index} className="p-4 border rounded-lg space-y-3">
                           <div className="flex items-start justify-between gap-4 flex-wrap">
                             <div className="space-y-1 flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
@@ -570,9 +563,7 @@ export const Admin = () => {
                                 <span className="text-xs text-[#717182]">
                                   {report.type === 1 ? '📋 Listing' : '👤 User'}
                                 </span>
-                                {report.id && (
-                                  <span className="text-xs text-[#717182]">ID: #{report.id}</span>
-                                )}
+                                {report.id && <span className="text-xs text-[#717182]">ID: #{report.id}</span>}
                               </div>
                               <p className="text-sm text-[#34495E]">{report.reason}</p>
                               <p className="text-xs text-[#717182]">
@@ -580,25 +571,28 @@ export const Admin = () => {
                                 {' · '}
                                 Reported: <span className="font-mono">{report.reportedId?.slice(0, 8)}…</span>
                               </p>
-                              {!hasId && report.status === 1 && (
-                                <p className="text-xs text-[#FFC759]">
-                                  ⚠ Report ID not returned by API — ask backend to include "id" in GetAllReports response to enable status updates.
+                              {/* Warn if no id returned — but still show buttons so admin can try */}
+                              {!report.id && report.status === 1 && (
+                                <p className="text-xs text-amber-500">
+                                  ⚠ No report ID from API — update may fail. Ask backend to include "id" in GetAllReports.
                                 </p>
                               )}
                             </div>
 
-                            {/* Action buttons — only shown when report has an id AND is pending */}
-                            {report.status === 1 && hasId && (
+                            {/* Action buttons shown for ALL pending reports (with or without id) */}
+                            {report.status === 1 && (
                               <div className="flex gap-2 flex-shrink-0">
                                 <Button size="sm" disabled={isUpdating}
                                   onClick={() => handleUpdateReport(report, index, 2)}
                                   className="bg-green-600 hover:bg-green-700 text-white">
-                                  <CheckCircle className="w-4 h-4 mr-1" />Resolve
+                                  <CheckCircle className="w-4 h-4 mr-1" />
+                                  {isUpdating ? '…' : 'Resolve'}
                                 </Button>
                                 <Button size="sm" variant="outline" disabled={isUpdating}
                                   onClick={() => handleUpdateReport(report, index, 3)}
                                   className="border-gray-300 text-gray-500 hover:bg-gray-100">
-                                  <XCircle className="w-4 h-4 mr-1" />Dismiss
+                                  <XCircle className="w-4 h-4 mr-1" />
+                                  {isUpdating ? '…' : 'Dismiss'}
                                 </Button>
                               </div>
                             )}
