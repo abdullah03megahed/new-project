@@ -270,11 +270,17 @@ export const HouseDetail = () => {
     }
     setBookingLoading(true);
     try {
-      const bookingId = await api.post<number>('/Booking/CreateBooking', {
+      const bookingResponse = await api.post<any>('/Booking/CreateBooking', {
         bedId: selectedBedId,
         startDate,
         endDate,
       });
+
+      // Handle plain number, { id }, or { bookingId }
+      const bookingId =
+        typeof bookingResponse === 'number'
+          ? bookingResponse
+          : bookingResponse?.id ?? bookingResponse?.bookingId ?? null;
 
       if (!bookingId) {
         toast.error('Booking created but no ID returned. Please contact support.');
