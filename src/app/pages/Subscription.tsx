@@ -31,7 +31,7 @@ interface Plan {
   popular?: boolean;
 }
 
-// ─── Plans config (IDs match DB: Freemium=4, Basic=8, Professional=11) ────────
+// ─── Plans config ─────────────────────────────────────────────────────────────
 
 const PLANS: Plan[] = [
   {
@@ -119,18 +119,22 @@ export const Subscription = () => {
 
   const currentPlanName = currentSub?.planName?.toLowerCase();
 
+  // ─── Subscribe: POST /Subscription/{planId} → subscriptionId
+  //               POST /Payment/Pay-Subscription/{subscriptionId} → paymentUrl
   const handleSubscribe = async (planId: number, planName: string) => {
     setSubscribing(planId);
     try {
-      // Step 1: Create the subscription → get back the subscription ID
       const subscriptionId = await api.post<number>(`/Subscription/${planId}`, {});
 
-      // Step 2: Initiate payment → get back a payment URL
+      if (!subscriptionId) {
+        toast.error('Subscription created but no ID returned. Please contact support.');
+        return;
+      }
+
       const paymentUrl = await api.post<string>(`/Payment/Pay-Subscription/${subscriptionId}`, {});
 
       if (paymentUrl) {
-        toast.success(`Redirecting you to payment for ${planName}...`);
-        // Redirect to the payment gateway
+        toast.success(`Redirecting to payment for ${planName}...`);
         window.location.href = paymentUrl;
       } else {
         toast.error('No payment URL returned. Please try again.');
@@ -142,21 +146,27 @@ export const Subscription = () => {
     }
   };
 
+  // ─── Renew: PUT /Subscription (may or may not return a subscriptionId)
+  //           If it does → pay immediately. If not → just confirm renewal.
   const handleRenew = async () => {
     setRenewing(true);
     try {
-      // Step 1: Renew the subscription → get back the new subscription ID
-      const subscriptionId = await api.put<number>('/Subscription', {});
+      const result = await api.put<number | null>('/Subscription', {});
 
-      // Step 2: Initiate payment → get back a payment URL
-      const paymentUrl = await api.post<string>(`/Payment/Pay-Subscription/${subscriptionId}`, {});
-
-      if (paymentUrl) {
-        toast.success('Redirecting you to payment...');
-        window.location.href = paymentUrl;
-      } else {
-        toast.error('No payment URL returned. Please try again.');
+      // If the renew endpoint returns a subscription ID, go straight to payment
+      if (result) {
+        const paymentUrl = await api.post<string>(`/Payment/Pay-Subscription/${result}`, {});
+        if (paymentUrl) {
+          toast.success('Redirecting to payment...');
+          window.location.href = paymentUrl;
+          return;
+        }
       }
+
+      // Otherwise just confirm and refresh
+      toast.success('Subscription renewed successfully!');
+      const data = await api.get<SubscriptionDto>('/Subscription');
+      setCurrentSub(data);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to renew subscription.');
     } finally {
@@ -186,9 +196,9 @@ export const Subscription = () => {
           </p>
         </div>
 
-        {/* Current plan badge */}
+        {/* Current plan banner */}
         {!loading && currentSub && (
-          <div className="mb-8 p-4 bg-[#00A5A7]/10 border border-[#00A5A7]/30 rounded-lg flex items-center justify-between">
+          <div className="mb-8 p-4 bg-[#00A5A7]/10 border border-[#00A5A7]/30 rounded-lg flex items-center justify-between flex-wrap gap-3">
             <div>
               <p className="text-[#34495E] font-medium">
                 Current Plan: <span className="text-[#00A5A7]">{currentSub.planName}</span>
@@ -265,16 +275,14 @@ export const Subscription = () => {
                   </div>
 
                   {/* Max listings badge */}
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      className="text-white border-0"
-                      style={{ backgroundColor: plan.color }}
-                    >
-                      {plan.maxListings >= 1000
-                        ? `${plan.maxListings.toLocaleString()} listings`
-                        : `Up to ${plan.maxListings} listings`}
-                    </Badge>
-                  </div>
+                  <Badge
+                    className="text-white border-0"
+                    style={{ backgroundColor: plan.color }}
+                  >
+                    {plan.maxListings >= 1000
+                      ? `${plan.maxListings.toLocaleString()} listings`
+                      : `Up to ${plan.maxListings} listings`}
+                  </Badge>
 
                   {/* Features */}
                   <ul className="space-y-2">
@@ -288,7 +296,7 @@ export const Subscription = () => {
 
                   {/* CTA */}
                   <Button
-                    className="w-full text-white border-0"
+                    className="w-full border-0"
                     style={{
                       backgroundColor: isCurrent ? '#B8E986' : plan.color,
                       color: isCurrent ? '#34495E' : 'white',
