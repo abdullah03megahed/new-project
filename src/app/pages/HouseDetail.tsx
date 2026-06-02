@@ -247,7 +247,6 @@ export const HouseDetail = () => {
       try {
         const data = await api.get<any>(`/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=50`);
         const listingBookings = (data.data || []).filter((b: any) => String(b.listingId) === String(id));
-        // Fetch full booking details for each to get studentName
         const detailed = await Promise.all(
           listingBookings.map((b: any) => api.get<BookingInfo>(`/Booking/GetBooking/${b.id}`).catch(() => null))
         );
@@ -259,6 +258,8 @@ export const HouseDetail = () => {
     fetchBookings();
   }, [user, id]);
 
+  // ─── Booking + Payment ───────────────────────────────────────────────────────
+
   const handleBooking = async () => {
     if (!selectedBedId || !startDate || !endDate) {
       toast.error('Please select a bed and dates.');
@@ -266,13 +267,29 @@ export const HouseDetail = () => {
     }
     setBookingLoading(true);
     try {
-      await api.post('/Booking/CreateBooking', { bedId: selectedBedId, startDate, endDate });
-      toast.success('Booking created! Contact details are now unlocked.');
-      const updated = await api.get<Listing>(`/Listing/${id}`);
-      setListing(updated);
-      setSelectedBedId(null);
-      setStartDate('');
-      setEndDate('');
+      // Step 1: Create booking → returns bookingId
+      const bookingId = await api.post<number>('/Booking/CreateBooking', {
+        bedId: selectedBedId,
+        startDate,
+        endDate,
+      });
+
+      if (!bookingId) {
+        toast.error('Booking was created but no ID was returned. Please contact support.');
+        return;
+      }
+
+      toast.success('Booking created! Redirecting to payment...');
+
+      // Step 2: Initiate payment → returns payment URL
+      const paymentUrl = await api.post<string>(`/Payment/Pay-Booking/${bookingId}`, {});
+
+      if (paymentUrl) {
+        // Redirect to payment gateway — user returns to current page after payment
+        window.location.href = paymentUrl;
+      } else {
+        toast.error('No payment URL returned. Please try again.');
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Booking failed.');
     } finally {
@@ -283,7 +300,6 @@ export const HouseDetail = () => {
   // Report listing (student reports landlord)
   const handleReportListing = async (reason: string) => {
     if (!listing) return;
-    // reportedId = landlord's accountId if available, else use landlordId as string
     const reportedId = listing.landlord?.accountId || String(listing.landlordId);
     await api.post('/Report/CreateReport', {
       reason,
@@ -330,7 +346,6 @@ export const HouseDetail = () => {
     .find(b => b.id === selectedBedId)?.price;
   const landlordName = getLandlordName(listing);
 
-  // Is this landlord viewing their own listing?
   const isOwnListing = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
 
   return (
@@ -535,10 +550,12 @@ export const HouseDetail = () => {
                       <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
                         min={startDate || new Date().toISOString().split('T')[0]} />
                     </div>
-                    <Button onClick={handleBooking}
+                    <Button
+                      onClick={handleBooking}
                       disabled={bookingLoading || !selectedBedId || !startDate || !endDate}
-                      className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white h-12">
-                      {bookingLoading ? 'Booking...' : 'Book Now'}
+                      className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white h-12"
+                    >
+                      {bookingLoading ? 'Processing...' : 'Book & Pay'}
                     </Button>
                     {!selectedBedId && (
                       <p className="text-[#717182] text-xs text-center">Select an available bed above to book</p>
@@ -565,7 +582,7 @@ export const HouseDetail = () => {
                     </div>
                   </div>
 
-                  {/* ── Report button for STUDENT ── */}
+                  {/* Report button for STUDENT */}
                   {user?.type === 'student' && (
                     <div className="mt-4 pt-4 border-t">
                       <ReportModal
@@ -582,7 +599,7 @@ export const HouseDetail = () => {
                     </div>
                   )}
 
-                  {/* ── Report students for LANDLORD (own listing) ── */}
+                  {/* Report students for LANDLORD (own listing) */}
                   {isOwnListing && bookings.length > 0 && (
                     <div className="mt-4 pt-4 border-t space-y-3">
                       <h4 className="text-[#34495E] font-medium text-sm">Students in this listing</h4>
