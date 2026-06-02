@@ -5,7 +5,7 @@ import { api } from '../utils/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { Plus, Edit, Trash2, MapPin, Home, Bed, DollarSign, AlertCircle } from 'lucide-react';
+import { Plus, Edit, Trash2, MapPin, Home, Bed, DollarSign, AlertCircle, Crown } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -26,6 +26,14 @@ interface Listing {
   canViewContact: boolean; landlordPhoneNumber: string | null; exactAddress: string | null;
 }
 
+interface SubscriptionDto {
+  planName: string;
+  maxListings: number;
+  price: number;
+  landlordId: number;
+  landlordName: string;
+}
+
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 
 const prefixImage = (img: string) => {
@@ -34,13 +42,20 @@ const prefixImage = (img: string) => {
   return `${IMAGE_BASE}${img.startsWith('/') ? img.slice(1) : img}`;
 };
 
+const PLAN_STYLES: Record<string, { color: string; bg: string; label: string }> = {
+  freemium:     { color: '#717182', bg: 'rgba(113,113,130,0.12)', label: 'Freemium' },
+  basic:        { color: '#00A5A7', bg: 'rgba(0,165,167,0.12)',   label: 'Basic' },
+  professional: { color: '#FFC759', bg: 'rgba(255,199,89,0.12)',  label: 'Professional' },
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const Dashboard = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [listings, setListings]       = useState<Listing[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [subscription, setSubscription] = useState<SubscriptionDto | null>(null);
 
   // Wait for auth to rehydrate before checking user type
   if (authLoading) {
@@ -63,17 +78,20 @@ export const Dashboard = () => {
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    const fetchListings = async () => {
+    const fetchAll = async () => {
       try {
-        const data = await api.get<Listing[]>('/Listing/listingsByLandLord');
-        setListings(data || []);
-      } catch {
-        toast.error('Failed to load your listings.');
+        const [listingsData, subData] = await Promise.allSettled([
+          api.get<Listing[]>('/Listing/listingsByLandLord'),
+          api.get<SubscriptionDto>('/Subscription'),
+        ]);
+        if (listingsData.status === 'fulfilled') setListings(listingsData.value || []);
+        else toast.error('Failed to load your listings.');
+        if (subData.status === 'fulfilled') setSubscription(subData.value);
       } finally {
         setLoading(false);
       }
     };
-    fetchListings();
+    fetchAll();
   }, []);
 
   const handleDelete = async (listingId: number) => {
@@ -95,11 +113,15 @@ export const Dashboard = () => {
     navigate('/add-house');
   };
 
-  const allBeds = listings.flatMap(l => l.rooms.flatMap(r => r.beds));
+  const allBeds           = listings.flatMap(l => l.rooms.flatMap(r => r.beds));
   const totalAvailableBeds = allBeds.filter(b => !b.isBooked).length;
-  const totalBookedBeds = allBeds.filter(b => b.isBooked).length;
-  const allPrices = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
-  const lowestPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+  const totalBookedBeds   = allBeds.filter(b => b.isBooked).length;
+  const allPrices         = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
+  const lowestPrice       = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+
+  const planKey    = subscription?.planName?.toLowerCase() ?? 'freemium';
+  const planStyle  = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
+  const isPaidPlan = planKey !== 'freemium';
 
   return (
     <div className="min-h-screen bg-[#B19CD9]/5">
@@ -126,15 +148,71 @@ export const Dashboard = () => {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-8 gap-4 flex-wrap">
           <div>
             <h1 className="text-[#34495E] mb-2">Landlord Dashboard</h1>
             <p className="text-[#717182]">Manage your property listings</p>
           </div>
-          <Button onClick={handleAddProperty} className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
-            <Plus className="w-5 h-5 mr-2" />Add New Property
-          </Button>
+
+          {/* Header actions */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Subscription badge + button */}
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium cursor-pointer transition-opacity hover:opacity-80"
+              style={{ borderColor: planStyle.color, background: planStyle.bg, color: planStyle.color }}
+              onClick={() => navigate('/subscription')}
+              title="Manage subscription"
+            >
+              <Crown className="w-4 h-4" />
+              <span>{planStyle.label}</span>
+              {!isPaidPlan && (
+                <span className="text-xs opacity-70 hidden sm:inline">· Upgrade</span>
+              )}
+            </div>
+
+            <Button
+              onClick={() => navigate('/subscription')}
+              variant="outline"
+              size="sm"
+              className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white hidden sm:flex"
+            >
+              <Crown className="w-4 h-4 mr-2" />
+              {isPaidPlan ? 'Manage Plan' : 'Upgrade Plan'}
+            </Button>
+
+            <Button
+              onClick={handleAddProperty}
+              className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
+            >
+              <Plus className="w-5 h-5 mr-2" />Add New Property
+            </Button>
+          </div>
         </div>
+
+        {/* Subscription upgrade nudge — only for freemium */}
+        {!loading && !isPaidPlan && listings.length > 0 && (
+          <div
+            className="mb-6 p-4 bg-[#00A5A7]/8 border border-[#00A5A7]/25 rounded-lg flex flex-col sm:flex-row items-start sm:items-center gap-3 cursor-pointer hover:border-[#00A5A7]/50 transition-colors"
+            onClick={() => navigate('/subscription')}
+          >
+            <Crown className="w-5 h-5 text-[#00A5A7] flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-[#34495E] font-medium text-sm">
+                You're on the Freemium plan — limited to 3 listings
+              </p>
+              <p className="text-[#717182] text-xs mt-0.5">
+                Upgrade to Basic or Professional to list more properties.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white flex-shrink-0"
+              onClick={(e) => { e.stopPropagation(); navigate('/subscription'); }}
+            >
+              View Plans
+            </Button>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -145,6 +223,11 @@ export const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-[#34495E] text-3xl font-bold">{listings.length}</div>
+              {subscription && (
+                <p className="text-[#717182] text-xs mt-1">
+                  of {subscription.maxListings.toLocaleString()} allowed
+                </p>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -213,8 +296,8 @@ export const Dashboard = () => {
             ) : (
               <div className="space-y-4">
                 {listings.map((listing) => {
-                  const availBeds = listing.rooms.flatMap(r => r.beds).filter(b => !b.isBooked).length;
-                  const totalBeds = listing.rooms.flatMap(r => r.beds).length;
+                  const availBeds  = listing.rooms.flatMap(r => r.beds).filter(b => !b.isBooked).length;
+                  const totalBeds  = listing.rooms.flatMap(r => r.beds).length;
                   const coverImage = listing.listingImages[0]
                     ? prefixImage(listing.listingImages[0])
                     : null;
@@ -224,7 +307,7 @@ export const Dashboard = () => {
                       key={listing.id}
                       className="flex flex-col md:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7]/40 transition-colors"
                     >
-                      {/* Cover image — not clickable */}
+                      {/* Cover image */}
                       {coverImage ? (
                         <img
                           src={coverImage}
@@ -241,7 +324,6 @@ export const Dashboard = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between mb-2 gap-2">
                           <div className="min-w-0">
-                            {/* ✅ Only the title navigates to house detail */}
                             <h3
                               className="text-[#34495E] font-medium mb-1 hover:text-[#00A5A7] cursor-pointer truncate"
                               onClick={() => navigate(`/house/${listing.id}`)}
@@ -267,7 +349,6 @@ export const Dashboard = () => {
                         </div>
 
                         <div className="flex gap-2">
-                          {/* ✅ stopPropagation so clicking Edit doesn't trigger title navigation */}
                           <Button
                             onClick={(e) => { e.stopPropagation(); navigate(`/add-house?edit=${listing.id}`); }}
                             variant="outline" size="sm"
@@ -278,7 +359,6 @@ export const Dashboard = () => {
 
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              {/* ✅ stopPropagation on trigger so dialog open doesn't navigate */}
                               <Button
                                 onClick={(e) => e.stopPropagation()}
                                 variant="outline" size="sm"
@@ -296,7 +376,6 @@ export const Dashboard = () => {
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                {/* ✅ stopPropagation on confirm action too */}
                                 <AlertDialogAction
                                   onClick={(e) => { e.stopPropagation(); handleDelete(listing.id); }}
                                   className="bg-[#FF6F61] hover:bg-[#FF6F61]/90"
