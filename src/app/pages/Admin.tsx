@@ -28,7 +28,8 @@ interface DashboardStats {
 }
 interface RecentListing {
   id: number; title: string; city: string; landlordName: string;
-  status: number; listingImages: string[]; publishedAt: string;
+  address: string; status: number; listingImages: string[]; publishedAt: string;
+  pricePerMonth?: number;
 }
 interface RecentBooking {
   id: number; startDate: string; endDate: string; listingId: number; bedId: number;
@@ -78,6 +79,7 @@ interface BanDialogProps {
 
 const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
   const [open, setOpen] = useState(false);
+  const [banType, setBanType] = useState<'1' | '2'>('1'); // 1=temporary, 2=permanent
   const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
@@ -88,18 +90,31 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
 
   const handleBan = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (banType === '1' && !endDate) {
+      toast.error('Please select an end date for a temporary ban.');
+      return;
+    }
     setLoading(true);
     try {
-      await api.post('/Ban/BanUser', {
+      const payload: any = {
         userId,
-        type: 1,
-        endDate,
+        type: Number(banType),
         reason,
-      });
-      toast.success(`${userName} has been banned until ${endDate}.`);
+      };
+      // Only include endDate for temporary ban (type 1)
+      if (banType === '1') {
+        payload.endDate = endDate;
+      }
+      await api.post('/Ban/BanUser', payload);
+      toast.success(
+        banType === '2'
+          ? `${userName} has been permanently banned.`
+          : `${userName} has been banned until ${endDate}.`
+      );
       setOpen(false);
       setEndDate('');
       setReason('');
+      setBanType('1');
       onBanned();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to ban user.');
@@ -120,20 +135,63 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
         <DialogHeader>
           <DialogTitle className="text-[#34495E]">Ban {userName}</DialogTitle>
           <DialogDescription>
-            Deactivate this account until the selected end date.
+            Choose the type of ban to apply to this account.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleBan} className="space-y-4 mt-2">
+
+          {/* Ban type */}
           <div className="space-y-2">
-            <Label>End Date</Label>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              min={minDateStr}
-              required
-            />
+            <Label>Ban Type</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setBanType('1')}
+                className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                  banType === '1'
+                    ? 'border-orange-400 bg-orange-50'
+                    : 'border-gray-200 hover:border-orange-200'
+                }`}
+              >
+                <p className="font-medium text-sm text-[#34495E]">⏱ Temporary</p>
+                <p className="text-xs text-[#717182] mt-1">Ban until a specific date</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBanType('2')}
+                className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                  banType === '2'
+                    ? 'border-red-500 bg-red-50'
+                    : 'border-gray-200 hover:border-red-200'
+                }`}
+              >
+                <p className="font-medium text-sm text-[#34495E]">🚫 Permanent</p>
+                <p className="text-xs text-[#717182] mt-1">Block email forever</p>
+              </button>
+            </div>
           </div>
+
+          {/* End date — only for temporary */}
+          {banType === '1' && (
+            <div className="space-y-2">
+              <Label>Ban Until</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                min={minDateStr}
+                required
+              />
+            </div>
+          )}
+
+          {banType === '2' && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              ⚠ This will permanently block this email from ever registering again.
+            </div>
+          )}
+
+          {/* Reason */}
           <div className="space-y-2">
             <Label>Reason</Label>
             <Input
@@ -143,13 +201,19 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
               required
             />
           </div>
+
           <div className="flex gap-3 justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || !endDate || !reason}
-              className="bg-orange-500 hover:bg-orange-600 text-white">
-              {loading ? 'Banning...' : 'Ban User'}
+            <Button
+              type="submit"
+              disabled={loading || !reason || (banType === '1' && !endDate)}
+              className={banType === '2'
+                ? 'bg-red-600 hover:bg-red-700 text-white'
+                : 'bg-orange-500 hover:bg-orange-600 text-white'}
+            >
+              {loading ? 'Banning...' : banType === '2' ? 'Permanently Ban' : 'Ban Until Date'}
             </Button>
           </div>
         </form>
@@ -158,7 +222,7 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
   );
 };
 
-// ─── User Card (shared for landlord & student) ────────────────────────────────
+// ─── User Card ────────────────────────────────────────────────────────────────
 
 interface UserCardProps {
   name: string;
@@ -169,9 +233,10 @@ interface UserCardProps {
   onRemove: () => void;
   onUnban?: () => void;
   isBanned?: boolean;
+  onBanned?: () => void;
 }
 
-const UserCard = ({ name, email, extra, accountId, numericId, onRemove, onUnban, isBanned }: UserCardProps) => (
+const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, onBanned }: UserCardProps) => (
   <div className="flex items-start justify-between p-4 border rounded-lg hover:border-[#00A5A7] transition-colors gap-4">
     <div className="space-y-1 flex-1 min-w-0">
       <div className="flex items-center gap-2 flex-wrap">
@@ -182,11 +247,9 @@ const UserCard = ({ name, email, extra, accountId, numericId, onRemove, onUnban,
       {extra}
     </div>
     <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
-      {/* Ban button — only if accountId available */}
       {accountId && !isBanned && (
-        <BanDialog userId={accountId} userName={name} onBanned={() => {}} />
+        <BanDialog userId={accountId} userName={name} onBanned={onBanned ?? (() => {})} />
       )}
-      {/* Unban button */}
       {isBanned && accountId && onUnban && (
         <Button variant="outline" size="sm" onClick={onUnban}
           className="border-green-500 text-green-600 hover:bg-green-50">
@@ -213,32 +276,27 @@ export const Admin = () => {
   const [students, setStudents]   = useState<Student[]>([]);
   const [loading, setLoading]     = useState(true);
 
-  // Landlord search
   const [landlordEmailInput, setLandlordEmailInput] = useState('');
   const [foundLandlord, setFoundLandlord]           = useState<Landlord | null>(null);
   const [landlordSearching, setLandlordSearching]   = useState(false);
   const [landlordNotFound, setLandlordNotFound]     = useState(false);
 
-  // Student search
   const [studentEmailInput, setStudentEmailInput] = useState('');
   const [foundStudent, setFoundStudent]           = useState<Student | null>(null);
   const [studentSearching, setStudentSearching]   = useState(false);
   const [studentNotFound, setStudentNotFound]     = useState(false);
 
-  // Reports
   const [reports, setReports]               = useState<Report[]>([]);
   const [reportCount, setReportCount]       = useState(0);
   const [reportStatus, setReportStatus]     = useState<string>('all');
   const [reportsLoading, setReportsLoading] = useState(false);
   const [updatingReportIdx, setUpdatingReportIdx] = useState<number | null>(null);
 
-  // Reports by listing
   const [listingIdInput, setListingIdInput]               = useState('');
   const [listingReports, setListingReports]               = useState<Report[]>([]);
   const [listingReportsLoading, setListingReportsLoading] = useState(false);
   const [searchedListingId, setSearchedListingId]         = useState<string | null>(null);
 
-  // ── Auth guard ──────────────────────────────────────────────────────────────
   if (!user || user.type !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -247,7 +305,6 @@ export const Admin = () => {
     );
   }
 
-  // ── Fetch overview ──────────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     const fetchAll = async () => {
@@ -267,7 +324,6 @@ export const Admin = () => {
     fetchAll();
   }, []);
 
-  // ── Fetch reports ───────────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (activeTab !== 'reports') return;
@@ -290,13 +346,9 @@ export const Admin = () => {
     finally { setReportsLoading(false); }
   };
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
-
   const handleLandlordSearch = async () => {
     if (!landlordEmailInput.trim()) return;
-    setLandlordSearching(true);
-    setFoundLandlord(null);
-    setLandlordNotFound(false);
+    setLandlordSearching(true); setFoundLandlord(null); setLandlordNotFound(false);
     try {
       const data = await api.get<Landlord>(`/LandLord/Email?email=${encodeURIComponent(landlordEmailInput.trim())}`);
       data?.id ? setFoundLandlord(data) : setLandlordNotFound(true);
@@ -306,9 +358,7 @@ export const Admin = () => {
 
   const handleStudentSearch = async () => {
     if (!studentEmailInput.trim()) return;
-    setStudentSearching(true);
-    setFoundStudent(null);
-    setStudentNotFound(false);
+    setStudentSearching(true); setFoundStudent(null); setStudentNotFound(false);
     try {
       const data = await api.get<Student>(`/Student/Email?email=${encodeURIComponent(studentEmailInput.trim())}`);
       data?.id ? setFoundStudent(data) : setStudentNotFound(true);
@@ -323,9 +373,7 @@ export const Admin = () => {
       setLandlords(prev => prev.filter(l => l.id !== id));
       if (foundLandlord?.id === id) setFoundLandlord(null);
       toast.success('Landlord removed.');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to remove landlord.');
-    }
+    } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed.'); }
   };
 
   const handleDeleteStudent = async (id: number) => {
@@ -335,34 +383,34 @@ export const Admin = () => {
       setStudents(prev => prev.filter(s => s.id !== id));
       if (foundStudent?.id === id) setFoundStudent(null);
       toast.success('Student removed.');
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to remove student.');
-    }
+    } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed.'); }
   };
 
   const handleUnban = async (accountId: string, name: string) => {
     try {
       await api.put(`/Ban/UnBanUser/${accountId}`, {});
       toast.success(`${name} has been unbanned.`);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to unban user.');
-    }
+    } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed to unban.'); }
   };
 
+  // Report update — GetAllReports does NOT return id in its schema.
+  // We must ask the backend team to add id to the response.
+  // Until then, show both buttons but inform admin if it fails.
   const handleUpdateReport = async (report: Report, index: number, newStatus: number) => {
-    const reportId = report.id ?? index + 1;
+    if (!report.id) {
+      toast.error(
+        'Cannot update: the backend does not return report IDs in GetAllReports. ' +
+        'Ask the backend team to add "id" to the GetAllReports response schema.'
+      );
+      return;
+    }
     setUpdatingReportIdx(index);
     try {
-      await api.put(`/Report/UpdateReport/${reportId}`, { status: newStatus });
-      toast.success(newStatus === 2 ? 'Report marked as resolved.' : 'Report dismissed.');
+      await api.put(`/Report/UpdateReport/${report.id}`, { status: newStatus });
+      toast.success(newStatus === 2 ? 'Report resolved.' : 'Report dismissed.');
       await fetchReports();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to update report.';
-      if (!report.id) {
-        toast.error('Update failed — backend does not return report IDs. Ask backend team to include "id" in GetAllReports response.');
-      } else {
-        toast.error(msg);
-      }
+      toast.error(err instanceof Error ? err.message : 'Failed to update report.');
     } finally {
       setUpdatingReportIdx(null);
     }
@@ -379,13 +427,10 @@ export const Admin = () => {
       );
       setListingReports(data.data || []);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to fetch reports for this listing.');
-    } finally {
-      setListingReportsLoading(false);
-    }
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch reports.');
+    } finally { setListingReportsLoading(false); }
   };
 
-  // ── Tab config ──────────────────────────────────────────────────────────────
   const tabs = [
     { id: 'overview',  label: 'Overview',                                              icon: TrendingUp },
     { id: 'landlords', label: `Landlords (${landlords.length})`,                       icon: Home },
@@ -393,14 +438,12 @@ export const Admin = () => {
     { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`, icon: Flag },
   ] as const;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-[#34495E] mb-2">Admin Dashboard</h1>
         <p className="text-[#717182] mb-8">Manage users, listings, and reports</p>
 
-        {/* Tabs */}
         <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
           {tabs.map(tab => {
             const Icon = tab.icon;
@@ -417,21 +460,20 @@ export const Admin = () => {
           })}
         </div>
 
-        {/* ════════════ OVERVIEW ════════════ */}
+        {/* ════════ OVERVIEW ════════ */}
         {activeTab === 'overview' && (
           <div className="space-y-8">
-            {/* Stats grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {loading
                 ? [1,2,3,4,5,6,7].map(i => <div key={i} className="h-28 bg-gray-100 rounded-lg animate-pulse" />)
                 : [
-                    { label: 'Total Students',   value: stats?.totalStudents   ?? students.length,   icon: <Users       className="w-5 h-5 text-[#00A5A7]" /> },
-                    { label: 'Total Landlords',  value: stats?.totalLandlords  ?? landlords.length,  icon: <Home        className="w-5 h-5 text-[#B8E986]" /> },
-                    { label: 'Total Listings',   value: stats?.totalListings   ?? '—',               icon: <TrendingUp  className="w-5 h-5 text-[#FFC759]" /> },
-                    { label: 'Total Bookings',   value: stats?.totalBookings   ?? '—',               icon: <BookOpen    className="w-5 h-5 text-[#B19CD9]" /> },
-                    { label: 'Available Beds',   value: stats?.availableBeds   ?? '—',               icon: <Bed         className="w-5 h-5 text-[#B8E986]" /> },
-                    { label: 'Occupied Beds',    value: stats?.occupiedBeds    ?? '—',               icon: <Bed         className="w-5 h-5 text-[#FF6F61]" /> },
-                    { label: 'Pending Listings', value: stats?.pendingListings ?? '—',               icon: <Flag        className="w-5 h-5 text-orange-400" /> },
+                    { label: 'Total Students',   value: stats?.totalStudents   ?? students.length,  icon: <Users      className="w-5 h-5 text-[#00A5A7]" /> },
+                    { label: 'Total Landlords',  value: stats?.totalLandlords  ?? landlords.length, icon: <Home       className="w-5 h-5 text-[#B8E986]" /> },
+                    { label: 'Total Listings',   value: stats?.totalListings   ?? '—',              icon: <TrendingUp className="w-5 h-5 text-[#FFC759]" /> },
+                    { label: 'Total Bookings',   value: stats?.totalBookings   ?? '—',              icon: <BookOpen   className="w-5 h-5 text-[#B19CD9]" /> },
+                    { label: 'Available Beds',   value: stats?.availableBeds   ?? '—',              icon: <Bed        className="w-5 h-5 text-[#B8E986]" /> },
+                    { label: 'Occupied Beds',    value: stats?.occupiedBeds    ?? '—',              icon: <Bed        className="w-5 h-5 text-[#FF6F61]" /> },
+                    { label: 'Pending Listings', value: stats?.pendingListings ?? '—',              icon: <Flag       className="w-5 h-5 text-orange-400" /> },
                   ].map(({ label, value, icon }) => (
                     <Card key={label}>
                       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -446,7 +488,7 @@ export const Admin = () => {
               }
             </div>
 
-            {/* Recent Listings */}
+            {/* ── Recent Listings — vertical list layout ── */}
             {stats?.recentListings && stats.recentListings.length > 0 && (
               <Card>
                 <CardHeader>
@@ -454,26 +496,30 @@ export const Admin = () => {
                   <CardDescription>Latest properties added to the platform</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-4">
                     {stats.recentListings.map(listing => (
-                      <div key={listing.id}
-                        className="border rounded-lg overflow-hidden hover:border-[#00A5A7] transition-colors cursor-pointer"
-                        onClick={() => navigate(`/house/${listing.id}`)}>
+                      <div
+                        key={listing.id}
+                        className="flex flex-col sm:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7] transition-colors cursor-pointer"
+                        onClick={() => navigate(`/house/${listing.id}`)}
+                      >
+                        {/* Cover image */}
                         {listing.listingImages?.[0] ? (
                           <img
                             src={prefixImage(listing.listingImages[0])}
                             alt={listing.title}
-                            className="w-full h-36 object-cover"
+                            className="w-full sm:w-40 h-28 object-cover rounded-lg flex-shrink-0"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
                         ) : (
-                          <div className="w-full h-36 bg-gray-100 flex items-center justify-center">
+                          <div className="w-full sm:w-40 h-28 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
                             <Home className="w-8 h-8 text-gray-300" />
                           </div>
                         )}
-                        <div className="p-3">
-                          <div className="flex items-start justify-between gap-2 mb-1">
-                            <p className="text-[#34495E] font-medium text-sm line-clamp-1 hover:text-[#00A5A7]">
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-1 flex-wrap">
+                            <p className="text-[#34495E] font-medium hover:text-[#00A5A7] line-clamp-1">
                               {listing.title}
                             </p>
                             <Badge className={`text-xs flex-shrink-0 border-0 ${
@@ -482,10 +528,14 @@ export const Admin = () => {
                               {listing.status === 1 ? 'Active' : 'Pending'}
                             </Badge>
                           </div>
-                          <div className="flex items-center gap-1 text-[#717182] text-xs">
-                            <MapPin className="w-3 h-3" /><span>{listing.city}</span>
+                          <div className="flex items-center gap-1 text-[#717182] text-sm mb-1">
+                            <MapPin className="w-3 h-3" />
+                            <span>{listing.address ? `${listing.address}, ` : ''}{listing.city}</span>
                           </div>
-                          <p className="text-[#717182] text-xs mt-1">By {listing.landlordName}</p>
+                          <p className="text-[#717182] text-sm">By <span className="text-[#00A5A7]">{listing.landlordName}</span></p>
+                          <p className="text-[#717182] text-xs mt-1">
+                            {new Date(listing.publishedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -506,9 +556,7 @@ export const Admin = () => {
                       <div key={booking.id} className="flex justify-between items-center p-3 border rounded-lg">
                         <div>
                           <p className="text-[#34495E] text-sm font-medium">Booking #{booking.id}</p>
-                          <p className="text-[#717182] text-xs">
-                            Listing #{booking.listingId} · Bed #{booking.bedId}
-                          </p>
+                          <p className="text-[#717182] text-xs">Listing #{booking.listingId} · Bed #{booking.bedId}</p>
                         </div>
                         <div className="text-right text-xs text-[#717182]">
                           <p>{booking.startDate}</p>
@@ -523,27 +571,22 @@ export const Admin = () => {
           </div>
         )}
 
-        {/* ════════════ LANDLORDS ════════════ */}
+        {/* ════════ LANDLORDS ════════ */}
         {activeTab === 'landlords' && (
           <div className="space-y-6">
-            {/* Search */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Landlord by Email</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex gap-3 flex-wrap">
-                  <Input
-                    placeholder="landlord@example.com"
-                    value={landlordEmailInput}
+                  <Input placeholder="landlord@example.com" value={landlordEmailInput}
                     onChange={(e) => { setLandlordEmailInput(e.target.value); setLandlordNotFound(false); }}
                     onKeyDown={(e) => e.key === 'Enter' && handleLandlordSearch()}
-                    className="max-w-sm"
-                  />
+                    className="max-w-sm" />
                   <Button onClick={handleLandlordSearch} disabled={landlordSearching}
                     className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
-                    <Search className="w-4 h-4 mr-2" />
-                    {landlordSearching ? 'Searching...' : 'Search'}
+                    <Search className="w-4 h-4 mr-2" />{landlordSearching ? 'Searching...' : 'Search'}
                   </Button>
                   {foundLandlord && (
                     <Button variant="ghost" onClick={() => { setFoundLandlord(null); setLandlordEmailInput(''); }}
@@ -558,6 +601,7 @@ export const Admin = () => {
                       email={foundLandlord.email}
                       accountId={foundLandlord.accountId}
                       numericId={foundLandlord.id}
+                      onBanned={() => handleLandlordSearch()}
                       extra={
                         <div className="space-y-0.5">
                           {foundLandlord.phoneNumber && <p className="text-sm text-[#717182]">{foundLandlord.phoneNumber}</p>}
@@ -573,7 +617,6 @@ export const Admin = () => {
               </CardContent>
             </Card>
 
-            {/* All Landlords */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">All Landlords</CardTitle>
@@ -587,14 +630,12 @@ export const Admin = () => {
                 ) : (
                   <div className="space-y-3">
                     {landlords.map(l => (
-                      <UserCard
-                        key={l.id}
-                        name={`${l.firstName} ${l.lastName}`}
-                        email={l.email}
-                        accountId={(l as any).accountId}
-                        numericId={l.id}
+                      <UserCard key={l.id}
+                        name={`${l.firstName} ${l.lastName}`} email={l.email}
+                        accountId={(l as any).accountId} numericId={l.id}
                         extra={l.phoneNumber ? <p className="text-sm text-[#717182]">{l.phoneNumber}</p> : undefined}
                         onRemove={() => handleDeleteLandlord(l.id)}
+                        onBanned={() => {}}
                         onUnban={(l as any).accountId ? () => handleUnban((l as any).accountId, `${l.firstName} ${l.lastName}`) : undefined}
                       />
                     ))}
@@ -605,27 +646,22 @@ export const Admin = () => {
           </div>
         )}
 
-        {/* ════════════ STUDENTS ════════════ */}
+        {/* ════════ STUDENTS ════════ */}
         {activeTab === 'students' && (
           <div className="space-y-6">
-            {/* Search */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Student by Email</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex gap-3 flex-wrap">
-                  <Input
-                    placeholder="student@example.com"
-                    value={studentEmailInput}
+                  <Input placeholder="student@example.com" value={studentEmailInput}
                     onChange={(e) => { setStudentEmailInput(e.target.value); setStudentNotFound(false); }}
                     onKeyDown={(e) => e.key === 'Enter' && handleStudentSearch()}
-                    className="max-w-sm"
-                  />
+                    className="max-w-sm" />
                   <Button onClick={handleStudentSearch} disabled={studentSearching}
                     className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
-                    <Search className="w-4 h-4 mr-2" />
-                    {studentSearching ? 'Searching...' : 'Search'}
+                    <Search className="w-4 h-4 mr-2" />{studentSearching ? 'Searching...' : 'Search'}
                   </Button>
                   {foundStudent && (
                     <Button variant="ghost" onClick={() => { setFoundStudent(null); setStudentEmailInput(''); }}
@@ -640,14 +676,12 @@ export const Admin = () => {
                       email={foundStudent.email}
                       accountId={foundStudent.accountId}
                       numericId={foundStudent.id}
+                      onBanned={() => handleStudentSearch()}
                       extra={
                         <div className="space-y-0.5">
                           {foundStudent.phoneNumber  && <p className="text-sm text-[#717182]">{foundStudent.phoneNumber}</p>}
                           {foundStudent.facultyField && <p className="text-sm text-[#717182]">🎓 {foundStudent.facultyField}</p>}
                           {foundStudent.homeTown     && <p className="text-sm text-[#717182]">📍 {foundStudent.homeTown}</p>}
-                          {foundStudent.gender !== undefined && (
-                            <p className="text-sm text-[#717182]">{foundStudent.gender === 1 ? 'Male' : 'Female'}</p>
-                          )}
                         </div>
                       }
                       onRemove={() => handleDeleteStudent(foundStudent.id)}
@@ -658,7 +692,6 @@ export const Admin = () => {
               </CardContent>
             </Card>
 
-            {/* All Students */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">All Students</CardTitle>
@@ -672,14 +705,12 @@ export const Admin = () => {
                 ) : (
                   <div className="space-y-3">
                     {students.map(s => (
-                      <UserCard
-                        key={s.id}
-                        name={`${s.firstName} ${s.lastName}`}
-                        email={s.email}
-                        accountId={(s as any).accountId}
-                        numericId={s.id}
+                      <UserCard key={s.id}
+                        name={`${s.firstName} ${s.lastName}`} email={s.email}
+                        accountId={(s as any).accountId} numericId={s.id}
                         extra={s.facultyField ? <p className="text-sm text-[#717182]">{s.facultyField}</p> : undefined}
                         onRemove={() => handleDeleteStudent(s.id)}
+                        onBanned={() => {}}
                         onUnban={(s as any).accountId ? () => handleUnban((s as any).accountId, `${s.firstName} ${s.lastName}`) : undefined}
                       />
                     ))}
@@ -690,7 +721,7 @@ export const Admin = () => {
           </div>
         )}
 
-        {/* ════════════ REPORTS ════════════ */}
+        {/* ════════ REPORTS ════════ */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
 
@@ -698,21 +729,17 @@ export const Admin = () => {
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Reports by Listing</CardTitle>
-                <CardDescription>Look up all reports filed against a specific listing ID</CardDescription>
+                <CardDescription>Look up all reports for a specific listing ID</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex gap-3 flex-wrap">
-                  <Input
-                    placeholder="Listing ID (e.g. 6)"
-                    value={listingIdInput}
+                  <Input placeholder="Listing ID (e.g. 6)" value={listingIdInput}
                     onChange={(e) => setListingIdInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearchByListing()}
-                    className="max-w-xs"
-                  />
+                    className="max-w-xs" />
                   <Button onClick={handleSearchByListing} disabled={listingReportsLoading}
                     className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
-                    <Search className="w-4 h-4 mr-2" />
-                    {listingReportsLoading ? 'Searching...' : 'Search'}
+                    <Search className="w-4 h-4 mr-2" />{listingReportsLoading ? 'Searching...' : 'Search'}
                   </Button>
                   {searchedListingId && (
                     <Button variant="ghost" onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
@@ -722,26 +749,24 @@ export const Admin = () => {
                 {listingReportsLoading ? (
                   <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
                 ) : searchedListingId && listingReports.length === 0 ? (
-                  <p className="text-sm text-[#717182]">No reports found for Listing #{searchedListingId}.</p>
+                  <p className="text-sm text-[#717182]">No reports for Listing #{searchedListingId}.</p>
                 ) : listingReports.length > 0 ? (
                   <div className="space-y-3">
                     <p className="text-sm text-[#717182] font-medium">
                       {listingReports.length} report{listingReports.length !== 1 ? 's' : ''} for Listing #{searchedListingId}
                     </p>
-                    {listingReports.map((report, i) => {
-                      const { label, color } = statusInfo(report.status);
+                    {listingReports.map((r, i) => {
+                      const { label, color } = statusInfo(r.status);
                       return (
                         <div key={i} className="p-3 border rounded-lg space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge className={`${color} border text-xs`}>{label}</Badge>
                             <span className="text-xs text-[#717182]">
-                              {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              {new Date(r.createdAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}
                             </span>
                           </div>
-                          <p className="text-sm text-[#34495E]">{report.reason}</p>
-                          <p className="text-xs text-[#717182]">
-                            Reporter: <span className="font-mono">{report.reporterId?.slice(0, 8)}…</span>
-                          </p>
+                          <p className="text-sm text-[#34495E]">{r.reason}</p>
+                          <p className="text-xs text-[#717182]">Reporter: <span className="font-mono">{r.reporterId?.slice(0,8)}…</span></p>
                         </div>
                       );
                     })}
@@ -755,12 +780,18 @@ export const Admin = () => {
               <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
                   <CardTitle className="text-[#34495E]">All Reports</CardTitle>
-                  <CardDescription>Review and manage user reports</CardDescription>
+                  <CardDescription>
+                    Review and manage user reports.
+                    {/* Inform admin about the id limitation */}
+                    {reports.length > 0 && !reports[0]?.id && (
+                      <span className="text-amber-600 ml-2 text-xs">
+                        ⚠ Backend must include "id" in GetAllReports response to enable Resolve/Dismiss.
+                      </span>
+                    )}
+                  </CardDescription>
                 </div>
                 <Select value={reportStatus} onValueChange={setReportStatus}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Filter by status" />
-                  </SelectTrigger>
+                  <SelectTrigger className="w-40"><SelectValue placeholder="Filter" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Reports</SelectItem>
                     <SelectItem value="1">Pending</SelectItem>
@@ -789,7 +820,7 @@ export const Admin = () => {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Badge className={`${color} border text-xs`}>{label}</Badge>
                                 <span className="text-xs text-[#717182]">
-                                  {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                  {new Date(report.createdAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}
                                 </span>
                                 <span className="text-xs text-[#717182]">
                                   {report.type === 1 ? '📋 Listing' : '👤 User'}
@@ -798,16 +829,12 @@ export const Admin = () => {
                               </div>
                               <p className="text-sm text-[#34495E]">{report.reason}</p>
                               <p className="text-xs text-[#717182]">
-                                Reporter: <span className="font-mono">{report.reporterId?.slice(0, 8)}…</span>
+                                Reporter: <span className="font-mono">{report.reporterId?.slice(0,8)}…</span>
                                 {' · '}
-                                Reported: <span className="font-mono">{report.reportedId?.slice(0, 8)}…</span>
+                                Reported: <span className="font-mono">{report.reportedId?.slice(0,8)}…</span>
                               </p>
-                              {!report.id && report.status === 1 && (
-                                <p className="text-xs text-amber-500">
-                                  ⚠ No report ID from API — ask backend to include "id" in GetAllReports.
-                                </p>
-                              )}
                             </div>
+
                             {report.status === 1 && (
                               <div className="flex gap-2 flex-shrink-0">
                                 <Button size="sm" disabled={isUpdating}
