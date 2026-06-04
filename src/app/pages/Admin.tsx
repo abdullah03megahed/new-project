@@ -836,7 +836,7 @@ export const Admin = () => {
                                   {isUpdating ? '…' : 'Resolve'}
                                 </Button>
                                 <Button size="sm" variant="outline" disabled={isUpdating}
-                                  onClick={() => handleUpdateReport(report, index, 4)}
+                                  onClick={() => handleUpdateReport(report, index, 3)}
                                   className="border-gray-300 text-gray-500 hover:bg-gray-100">
                                   <XCircle className="w-4 h-4 mr-1" />
                                   {isUpdating ? '…' : 'Reject'}
