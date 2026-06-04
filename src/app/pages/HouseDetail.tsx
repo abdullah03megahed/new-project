@@ -1,90 +1,108 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router';
-import { api } from '../utils/api';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
 import { useAuth } from '../utils/AuthContext';
+import { api } from '../utils/api';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Card, CardContent } from '../components/ui/card';
-import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { Badge } from '../components/ui/badge';
 import { Label } from '../components/ui/label';
-import { Textarea } from '../components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from '../components/ui/dialog';
-import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users, X, ChevronLeft, ChevronRight, ZoomIn, Flag } from 'lucide-react';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '../components/ui/carousel';
+import {
+  Users, Home, TrendingUp, Flag, CheckCircle, XCircle,
+  Search, Ban, ShieldOff, MapPin, BookOpen, Bed,
+} from 'lucide-react';
 import { toast } from 'sonner';
-import { PaymentModal } from '../components/PaymentModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface BedDto { id: number; bedNumber?: number; isBooked: boolean; }
-interface Room {
-  id: number; name: string; bedCount: number;
-  pricePerBed: number; roomImages: string[]; beds: BedDto[];
+interface DashboardStats {
+  totalStudents: number; totalLandlords: number;
+  totalListings: number; totalBookings: number;
+  availableBeds: number; occupiedBeds: number; pendingListings: number;
+  recentListings: RecentListing[];
+  recentBookings: RecentBooking[];
 }
-interface BookingInfo {
-  id: number; studentId: number; studentName: string;
-  startDate: string; endDate: string; bedId: number; listingId: number;
-  status: number; amount: number;
+interface RecentListing {
+  id: number; title: string; city: string; landlordName: string;
+  status: number; listingImages: string[]; publishedAt: string;
 }
-interface Listing {
-  id: number; title: string; description: string;
-  address: string; street: string; city: string;
-  furnished: boolean; wifiAvailable: boolean;
-  numberOfRooms: number; genderPreference: number;
-  status: number; publishedAt: string;
-  landlordId: number;
-  landlordName?: string;
-  landlord?: { firstName?: string; lastName?: string; name?: string; accountId?: string; };
-  listingImages: string[]; rooms: Room[];
-  canViewContact: boolean;
-  landlordPhoneNumber: string | null;
-  exactAddress: string | null;
+interface RecentBooking {
+  id: number; startDate: string; endDate: string; listingId: number; bedId: number;
 }
+interface Landlord {
+  id: number; firstName: string; lastName: string;
+  email: string; phoneNumber?: string; nationalId?: string;
+  homeTown?: string; birthDate?: string; accountId?: string;
+}
+interface Student {
+  id: number; firstName: string; lastName: string;
+  email: string; phoneNumber?: string; gender?: number;
+  facultyField?: string; homeTown?: string; accountId?: string;
+}
+interface Report {
+  id?: number;
+  reporterId: string; reportedId: string; reason: string;
+  status: number; type: number; createdAt: string;
+}
+interface PaginatedReports {
+  pageIndex: number; pageSize: number; count: number; data: Report[];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const IMAGE_BASE = 'https://unimate.runasp.net/';
-const GENDER_LABELS: Record<number, string> = { 1: 'Male Only', 2: 'Female Only' };
-
 const prefixImage = (img: string) => {
   if (!img) return '';
   if (img.startsWith('http://') || img.startsWith('https://')) return img;
   return `${IMAGE_BASE}${img.startsWith('/') ? img.slice(1) : img}`;
 };
 
-const getLandlordName = (listing: Listing): string => {
-  if (listing.landlordName && listing.landlordName.trim()) return listing.landlordName;
-  if (listing.landlord?.name) return listing.landlord.name;
-  if (listing.landlord?.firstName || listing.landlord?.lastName)
-    return `${listing.landlord.firstName || ''} ${listing.landlord.lastName || ''}`.trim();
-  return '';
+const statusInfo = (s: number) => {
+  if (s === 1) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  if (s === 2) return { label: 'Resolved',  color: 'bg-green-100 text-green-700 border-green-200' };
+  if (s === 3) return { label: 'Dismissed', color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
 };
 
-// ─── Report Modal ─────────────────────────────────────────────────────────────
+// ─── Ban Dialog ───────────────────────────────────────────────────────────────
 
-interface ReportModalProps {
-  trigger: React.ReactNode;
-  title: string;
-  description: string;
-  onSubmit: (reason: string) => Promise<void>;
+interface BanDialogProps {
+  userId: string;
+  userName: string;
+  onBanned: () => void;
 }
 
-const ReportModal = ({ trigger, title, description, onSubmit }: ReportModalProps) => {
+const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
   const [open, setOpen] = useState(false);
+  const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const minDate = new Date();
+  minDate.setDate(minDate.getDate() + 1);
+  const minDateStr = minDate.toISOString().split('T')[0];
+
+  const handleBan = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reason.trim()) return;
     setLoading(true);
     try {
-      await onSubmit(reason.trim());
-      toast.success('Report submitted. Our team will review it.');
-      setReason('');
+      await api.post('/Ban/BanUser', {
+        userId,
+        type: 1,
+        endDate,
+        reason,
+      });
+      toast.success(`${userName} has been banned until ${endDate}.`);
       setOpen(false);
+      setEndDate('');
+      setReason('');
+      onBanned();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to submit report.');
+      toast.error(err instanceof Error ? err.message : 'Failed to ban user.');
     } finally {
       setLoading(false);
     }
@@ -92,37 +110,46 @@ const ReportModal = ({ trigger, title, description, onSubmit }: ReportModalProps
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm"
+          className="border-orange-400 text-orange-500 hover:bg-orange-50">
+          <Ban className="w-4 h-4 mr-1" />Ban
+        </Button>
+      </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-[#34495E]">{title}</DialogTitle>
-          <DialogDescription className="text-[#717182]">{description}</DialogDescription>
+          <DialogTitle className="text-[#34495E]">Ban {userName}</DialogTitle>
+          <DialogDescription>
+            Deactivate this account until the selected end date.
+          </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+        <form onSubmit={handleBan} className="space-y-4 mt-2">
           <div className="space-y-2">
-            <Label htmlFor="reason" className="text-[#34495E]">Reason</Label>
-            <Textarea
-              id="reason"
+            <Label>End Date</Label>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              min={minDateStr}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Reason</Label>
+            <Input
+              placeholder="Reason for ban..."
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Describe the issue..."
-              rows={4}
               required
-              className="border-[#00A5A7]/20 focus:border-[#00A5A7] resize-none"
-              maxLength={500}
             />
-            <p className="text-xs text-[#717182]">{reason.length}/500 characters</p>
           </div>
           <div className="flex gap-3 justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={loading || !reason.trim()}
-              className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
-            >
-              {loading ? 'Submitting...' : 'Submit Report'}
+            <Button type="submit" disabled={loading || !endDate || !reason}
+              className="bg-orange-500 hover:bg-orange-600 text-white">
+              {loading ? 'Banning...' : 'Ban User'}
             </Button>
           </div>
         </form>
@@ -131,511 +158,692 @@ const ReportModal = ({ trigger, title, description, onSubmit }: ReportModalProps
   );
 };
 
-// ─── Lightbox ─────────────────────────────────────────────────────────────────
+// ─── User Card (shared for landlord & student) ────────────────────────────────
 
-interface LightboxProps {
-  images: string[];
-  initialIndex: number;
-  onClose: () => void;
+interface UserCardProps {
+  name: string;
+  email: string;
+  extra?: React.ReactNode;
+  accountId?: string;
+  numericId: number;
+  onRemove: () => void;
+  onUnban?: () => void;
+  isBanned?: boolean;
 }
 
-const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
-  const [current, setCurrent] = useState(initialIndex);
-  const prev = useCallback(() => setCurrent(i => (i - 1 + images.length) % images.length), [images.length]);
-  const next = useCallback(() => setCurrent(i => (i + 1) % images.length), [images.length]);
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowLeft') prev();
-      if (e.key === 'ArrowRight') next();
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [onClose, prev, next]);
-
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backgroundColor: 'rgba(10, 15, 30, 0.95)' }} onClick={onClose}>
-      <button onClick={onClose}
-        className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
-        <X className="w-5 h-5 text-white" />
-      </button>
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm">
-        {current + 1} / {images.length}
+const UserCard = ({ name, email, extra, accountId, numericId, onRemove, onUnban, isBanned }: UserCardProps) => (
+  <div className="flex items-start justify-between p-4 border rounded-lg hover:border-[#00A5A7] transition-colors gap-4">
+    <div className="space-y-1 flex-1 min-w-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="font-medium text-[#34495E]">{name}</p>
+        {isBanned && <Badge className="bg-orange-100 text-orange-600 border-orange-200 border text-xs">Banned</Badge>}
       </div>
-      {images.length > 1 && (
-        <button onClick={(e) => { e.stopPropagation(); prev(); }}
-          className="absolute left-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
-          <ChevronLeft className="w-6 h-6 text-white" />
-        </button>
-      )}
-      <div className="max-w-5xl max-h-[85vh] w-full mx-16 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-        <img src={prefixImage(images[current])} alt={`Image ${current + 1}`}
-          className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" />
-      </div>
-      {images.length > 1 && (
-        <button onClick={(e) => { e.stopPropagation(); next(); }}
-          className="absolute right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
-          <ChevronRight className="w-6 h-6 text-white" />
-        </button>
-      )}
-      {images.length > 1 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 overflow-x-auto max-w-lg px-2">
-          {images.map((img, i) => (
-            <button key={i} onClick={(e) => { e.stopPropagation(); setCurrent(i); }}
-              className={`flex-shrink-0 w-14 h-10 rounded overflow-hidden border-2 transition-all ${
-                i === current ? 'border-white opacity-100' : 'border-transparent opacity-50 hover:opacity-75'}`}>
-              <img src={prefixImage(img)} alt="" className="w-full h-full object-cover" />
-            </button>
-          ))}
-        </div>
-      )}
+      <p className="text-sm text-[#717182]">{email}</p>
+      {extra}
     </div>
-  );
-};
+    <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+      {/* Ban button — only if accountId available */}
+      {accountId && !isBanned && (
+        <BanDialog userId={accountId} userName={name} onBanned={() => {}} />
+      )}
+      {/* Unban button */}
+      {isBanned && accountId && onUnban && (
+        <Button variant="outline" size="sm" onClick={onUnban}
+          className="border-green-500 text-green-600 hover:bg-green-50">
+          <ShieldOff className="w-4 h-4 mr-1" />Unban
+        </Button>
+      )}
+      <Button variant="outline" size="sm" onClick={onRemove}
+        className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
+        Remove
+      </Button>
+    </div>
+  </div>
+);
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export const HouseDetail = () => {
-  const { id } = useParams();
-  const navigate = useNavigate();
+export const Admin = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<'overview' | 'landlords' | 'students' | 'reports'>('overview');
 
-  const [listing, setListing] = useState<Listing | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedBedId, setSelectedBedId] = useState<number | null>(null);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [bookingLoading, setBookingLoading] = useState(false);
-  const [bookings, setBookings] = useState<BookingInfo[]>([]);
+  const [stats, setStats]         = useState<DashboardStats | null>(null);
+  const [landlords, setLandlords] = useState<Landlord[]>([]);
+  const [students, setStudents]   = useState<Student[]>([]);
+  const [loading, setLoading]     = useState(true);
 
-  // Payment modal state
-  const [paymentOpen, setPaymentOpen] = useState(false);
-  const [pendingBookingId, setPendingBookingId] = useState<number | null>(null);
-  const [pendingAmount, setPendingAmount] = useState<number | undefined>(undefined);
+  // Landlord search
+  const [landlordEmailInput, setLandlordEmailInput] = useState('');
+  const [foundLandlord, setFoundLandlord]           = useState<Landlord | null>(null);
+  const [landlordSearching, setLandlordSearching]   = useState(false);
+  const [landlordNotFound, setLandlordNotFound]     = useState(false);
 
-  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  // Student search
+  const [studentEmailInput, setStudentEmailInput] = useState('');
+  const [foundStudent, setFoundStudent]           = useState<Student | null>(null);
+  const [studentSearching, setStudentSearching]   = useState(false);
+  const [studentNotFound, setStudentNotFound]     = useState(false);
 
-  const openLightbox = (images: string[], index: number) => {
-    setLightboxImages(images);
-    setLightboxIndex(index);
-    setLightboxOpen(true);
-  };
+  // Reports
+  const [reports, setReports]               = useState<Report[]>([]);
+  const [reportCount, setReportCount]       = useState(0);
+  const [reportStatus, setReportStatus]     = useState<string>('all');
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [updatingReportIdx, setUpdatingReportIdx] = useState<number | null>(null);
 
+  // Reports by listing
+  const [listingIdInput, setListingIdInput]               = useState('');
+  const [listingReports, setListingReports]               = useState<Report[]>([]);
+  const [listingReportsLoading, setListingReportsLoading] = useState(false);
+  const [searchedListingId, setSearchedListingId]         = useState<string | null>(null);
+
+  // ── Auth guard ──────────────────────────────────────────────────────────────
+  if (!user || user.type !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-[#717182]">Access denied. Admins only.</p>
+      </div>
+    );
+  }
+
+  // ── Fetch overview ──────────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    const fetchListing = async () => {
+    const fetchAll = async () => {
+      setLoading(true);
       try {
-        const data = await api.get<Listing>(`/Listing/${id}`);
-        setListing(data);
-      } catch {
-        toast.error('Failed to load listing.');
-      } finally {
-        setLoading(false);
-      }
+        const [statsRes, landlordsRes, studentsRes] = await Promise.allSettled([
+          api.get<DashboardStats>('/admin/dashboard'),
+          api.get<Landlord[]>('/LandLord'),
+          api.get<Student[]>('/Student'),
+        ]);
+        if (statsRes.status     === 'fulfilled') setStats(statsRes.value);
+        if (landlordsRes.status === 'fulfilled') setLandlords(landlordsRes.value || []);
+        if (studentsRes.status  === 'fulfilled') setStudents(studentsRes.value  || []);
+      } catch { /* silently fail */ }
+      finally { setLoading(false); }
     };
-    if (id) fetchListing();
-  }, [id]);
+    fetchAll();
+  }, []);
 
+  // ── Fetch reports ───────────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    if (!user || user.type !== 'landlord' || !id) return;
-    const fetchBookings = async () => {
-      try {
-        const data = await api.get<any>(`/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=50`);
-        const listingBookings = (data.data || []).filter((b: any) => String(b.listingId) === String(id));
-        const detailed = await Promise.all(
-          listingBookings.map((b: any) => api.get<BookingInfo>(`/Booking/GetBooking/${b.id}`).catch(() => null))
-        );
-        setBookings(detailed.filter(Boolean) as BookingInfo[]);
-      } catch {
-        // silently fail
-      }
-    };
-    fetchBookings();
-  }, [user, id]);
+    if (activeTab !== 'reports') return;
+    fetchReports();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, reportStatus]);
 
-  // ─── Step 1: Create booking → open payment modal ──────────────────────────
-
-  const handleBooking = async () => {
-    if (!selectedBedId || !startDate || !endDate) {
-      toast.error('Please select a bed and dates.');
-      return;
-    }
-    setBookingLoading(true);
+  const fetchReports = async () => {
+    setReportsLoading(true);
     try {
-      const bookingResponse = await api.post<any>('/Booking/CreateBooking', {
-        bedId: selectedBedId,
-        startDate,
-        endDate,
-      });
+      const params = new URLSearchParams();
+      if (reportStatus !== 'all') params.append('Status', reportStatus);
+      params.append('SortingOption', '2');
+      params.append('PageIndex', '1');
+      params.append('PageSize', '50');
+      const data = await api.get<PaginatedReports>(`/Report/GetAllReports?${params}`);
+      setReports(data.data || []);
+      setReportCount(data.count || 0);
+    } catch { /* silently fail */ }
+    finally { setReportsLoading(false); }
+  };
 
-      // Handle plain number, { id }, or { bookingId }
-      const bookingId =
-        typeof bookingResponse === 'number'
-          ? bookingResponse
-          : bookingResponse?.id ?? bookingResponse?.bookingId ?? null;
+  // ── Handlers ────────────────────────────────────────────────────────────────
 
-      if (!bookingId) {
-        toast.error('Booking created but no ID returned. Please contact support.');
-        return;
-      }
+  const handleLandlordSearch = async () => {
+    if (!landlordEmailInput.trim()) return;
+    setLandlordSearching(true);
+    setFoundLandlord(null);
+    setLandlordNotFound(false);
+    try {
+      const data = await api.get<Landlord>(`/LandLord/Email?email=${encodeURIComponent(landlordEmailInput.trim())}`);
+      data?.id ? setFoundLandlord(data) : setLandlordNotFound(true);
+    } catch { setLandlordNotFound(true); }
+    finally   { setLandlordSearching(false); }
+  };
 
-      // Store the booking ID and open payment modal
-      setPendingBookingId(bookingId);
-      setPendingAmount(listing?.rooms
-        .flatMap(r => r.beds.map(b => ({ id: b.id, price: r.pricePerBed })))
-        .find(b => b.id === selectedBedId)?.price);
-      setPaymentOpen(true);
+  const handleStudentSearch = async () => {
+    if (!studentEmailInput.trim()) return;
+    setStudentSearching(true);
+    setFoundStudent(null);
+    setStudentNotFound(false);
+    try {
+      const data = await api.get<Student>(`/Student/Email?email=${encodeURIComponent(studentEmailInput.trim())}`);
+      data?.id ? setFoundStudent(data) : setStudentNotFound(true);
+    } catch { setStudentNotFound(true); }
+    finally   { setStudentSearching(false); }
+  };
+
+  const handleDeleteLandlord = async (id: number) => {
+    if (!confirm('Remove this landlord? This cannot be undone.')) return;
+    try {
+      await api.delete(`/LandLord/${id}`);
+      setLandlords(prev => prev.filter(l => l.id !== id));
+      if (foundLandlord?.id === id) setFoundLandlord(null);
+      toast.success('Landlord removed.');
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Booking failed.');
-    } finally {
-      setBookingLoading(false);
+      toast.error(err instanceof Error ? err.message : 'Failed to remove landlord.');
     }
   };
 
-  // ─── Step 2: After successful payment, refresh listing ───────────────────
-
-  const handlePaymentSuccess = async () => {
-    toast.success('Booking confirmed! Contact details are now unlocked.');
-    const updated = await api.get<Listing>(`/Listing/${id}`);
-    setListing(updated);
-    setSelectedBedId(null);
-    setStartDate('');
-    setEndDate('');
-    setPendingBookingId(null);
+  const handleDeleteStudent = async (id: number) => {
+    if (!confirm('Remove this student? This cannot be undone.')) return;
+    try {
+      await api.delete(`/Student/${id}`);
+      setStudents(prev => prev.filter(s => s.id !== id));
+      if (foundStudent?.id === id) setFoundStudent(null);
+      toast.success('Student removed.');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove student.');
+    }
   };
 
-  const handleReportListing = async (reason: string) => {
-    if (!listing) return;
-    const reportedId = listing.landlord?.accountId || String(listing.landlordId);
-    await api.post('/Report/CreateReport', { reason, reportedId, listingId: listing.id });
+  const handleUnban = async (accountId: string, name: string) => {
+    try {
+      await api.put(`/Ban/UnBanUser/${accountId}`, {});
+      toast.success(`${name} has been unbanned.`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to unban user.');
+    }
   };
 
-  const handleReportStudent = async (reason: string, studentAccountId: string) => {
-    if (!listing) return;
-    await api.post('/Report/CreateReport', { reason, reportedId: studentAccountId, listingId: listing.id });
+  const handleUpdateReport = async (report: Report, index: number, newStatus: number) => {
+    const reportId = report.id ?? index + 1;
+    setUpdatingReportIdx(index);
+    try {
+      await api.put(`/Report/UpdateReport/${reportId}`, { status: newStatus });
+      toast.success(newStatus === 2 ? 'Report marked as resolved.' : 'Report dismissed.');
+      await fetchReports();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update report.';
+      if (!report.id) {
+        toast.error('Update failed — backend does not return report IDs. Ask backend team to include "id" in GetAllReports response.');
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setUpdatingReportIdx(null);
+    }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#00A5A7]" />
-      </div>
-    );
-  }
+  const handleSearchByListing = async () => {
+    if (!listingIdInput.trim()) return;
+    setListingReportsLoading(true);
+    setSearchedListingId(listingIdInput.trim());
+    setListingReports([]);
+    try {
+      const data = await api.get<PaginatedReports>(
+        `/Report/GetReportsBylisting?listingId=${listingIdInput.trim()}&SortingOption=2&PageIndex=1&PageSize=50`
+      );
+      setListingReports(data.data || []);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch reports for this listing.');
+    } finally {
+      setListingReportsLoading(false);
+    }
+  };
 
-  if (!listing) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-[#34495E] mb-4">Listing not found</h2>
-          <Button onClick={() => navigate('/houses')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90">Back to Houses</Button>
-        </div>
-      </div>
-    );
-  }
+  // ── Tab config ──────────────────────────────────────────────────────────────
+  const tabs = [
+    { id: 'overview',  label: 'Overview',                                              icon: TrendingUp },
+    { id: 'landlords', label: `Landlords (${landlords.length})`,                       icon: Home },
+    { id: 'students',  label: `Students (${students.length})`,                         icon: Users },
+    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`, icon: Flag },
+  ] as const;
 
-  const allImages = [...listing.listingImages, ...listing.rooms.flatMap(r => r.roomImages)];
-  const availableBeds = listing.rooms.flatMap(room =>
-    room.beds.filter(b => !b.isBooked).map(b => ({ ...b, roomName: room.name, pricePerBed: room.pricePerBed }))
-  );
-  const selectedBedPrice = listing.rooms
-    .flatMap(r => r.beds.map(b => ({ ...b, price: r.pricePerBed })))
-    .find(b => b.id === selectedBedId)?.price;
-  const landlordName = getLandlordName(listing);
-  const isOwnListing = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
-
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-white">
-      {lightboxOpen && (
-        <Lightbox images={lightboxImages} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />
-      )}
-
-      {/* Payment modal — opens after booking is created */}
-      {pendingBookingId && (
-        <PaymentModal
-          open={paymentOpen}
-          onClose={() => setPaymentOpen(false)}
-          onSuccess={handlePaymentSuccess}
-          type="booking"
-          resourceId={pendingBookingId}
-          label={`Booking for ${listing.title}`}
-          amount={pendingAmount}
-        />
-      )}
-
-      <div className="bg-[#B19CD9]/5 border-b">
-        <div className="container mx-auto px-4 py-4">
-          <Button variant="ghost" onClick={() => navigate('/houses')} className="text-[#34495E] hover:text-[#00A5A7]">
-            <ArrowLeft className="w-5 h-5 mr-2" />Back to Houses
-          </Button>
-        </div>
-      </div>
-
+    <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <h1 className="text-[#34495E] mb-2">Admin Dashboard</h1>
+        <p className="text-[#717182] mb-8">Manage users, listings, and reports</p>
 
-          {/* Main Content */}
-          <div className="lg:col-span-2">
-            {allImages.length > 0 ? (
-              <div className="mb-8">
-                <Carousel>
-                  <CarouselContent>
-                    {allImages.map((image, index) => (
-                      <CarouselItem key={index}>
-                        <div className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer"
-                          onClick={() => openLightbox(allImages, index)}>
-                          <img src={prefixImage(image)} alt={`${listing.title} - Image ${index + 1}`}
-                            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 flex items-center justify-center">
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/50 rounded-full p-3">
-                              <ZoomIn className="w-6 h-6 text-white" />
-                            </div>
-                          </div>
-                        </div>
-                      </CarouselItem>
-                    ))}
-                  </CarouselContent>
-                  <CarouselPrevious className="left-4" />
-                  <CarouselNext className="right-4" />
-                </Carousel>
-                <p className="text-xs text-[#717182] text-center mt-2">Click any image to view full size</p>
-              </div>
-            ) : (
-              <div className="aspect-video rounded-lg bg-gray-100 mb-8 flex items-center justify-center">
-                <Home className="w-16 h-16 text-gray-300" />
-              </div>
-            )}
+        {/* Tabs */}
+        <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'border-[#00A5A7] text-[#00A5A7]'
+                    : 'border-transparent text-[#717182] hover:text-[#34495E]'
+                }`}>
+                <Icon className="w-4 h-4" />{tab.label}
+              </button>
+            );
+          })}
+        </div>
 
-            <div className="mb-6">
-              <div className="flex items-start justify-between mb-2 flex-wrap gap-2">
-                <h1 className="text-[#34495E]">{listing.title}</h1>
-                <div className="flex gap-2 flex-wrap">
-                  {listing.furnished && <Badge className="bg-[#B8E986] text-[#34495E] border-0">Furnished</Badge>}
-                  {listing.wifiAvailable && <Badge className="bg-[#00A5A7] text-white border-0">WiFi</Badge>}
-                  {listing.genderPreference !== 0 && <Badge variant="outline">{GENDER_LABELS[listing.genderPreference]}</Badge>}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-[#717182] mb-2">
-                <MapPin className="w-5 h-5" />
-                <span>
-                  {listing.canViewContact && listing.exactAddress
-                    ? `${listing.exactAddress}, ${listing.city}`
-                    : `${listing.address}, ${listing.city}`}
-                </span>
-              </div>
-              {landlordName && (
-                <p className="text-[#717182] text-sm">Listed by <span className="text-[#00A5A7]">{landlordName}</span></p>
-              )}
+        {/* ════════════ OVERVIEW ════════════ */}
+        {activeTab === 'overview' && (
+          <div className="space-y-8">
+            {/* Stats grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {loading
+                ? [1,2,3,4,5,6,7].map(i => <div key={i} className="h-28 bg-gray-100 rounded-lg animate-pulse" />)
+                : [
+                    { label: 'Total Students',   value: stats?.totalStudents   ?? students.length,   icon: <Users       className="w-5 h-5 text-[#00A5A7]" /> },
+                    { label: 'Total Landlords',  value: stats?.totalLandlords  ?? landlords.length,  icon: <Home        className="w-5 h-5 text-[#B8E986]" /> },
+                    { label: 'Total Listings',   value: stats?.totalListings   ?? '—',               icon: <TrendingUp  className="w-5 h-5 text-[#FFC759]" /> },
+                    { label: 'Total Bookings',   value: stats?.totalBookings   ?? '—',               icon: <BookOpen    className="w-5 h-5 text-[#B19CD9]" /> },
+                    { label: 'Available Beds',   value: stats?.availableBeds   ?? '—',               icon: <Bed         className="w-5 h-5 text-[#B8E986]" /> },
+                    { label: 'Occupied Beds',    value: stats?.occupiedBeds    ?? '—',               icon: <Bed         className="w-5 h-5 text-[#FF6F61]" /> },
+                    { label: 'Pending Listings', value: stats?.pendingListings ?? '—',               icon: <Flag        className="w-5 h-5 text-orange-400" /> },
+                  ].map(({ label, value, icon }) => (
+                    <Card key={label}>
+                      <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-[#717182] text-xs">{label}</CardTitle>
+                        {icon}
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-[#34495E] text-2xl font-bold">{value}</div>
+                      </CardContent>
+                    </Card>
+                  ))
+              }
             </div>
 
-            <Card className="mb-8">
-              <CardContent className="p-6">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {[
-                    { icon: <Home className="w-6 h-6 text-[#00A5A7] mb-2" />, label: `${listing.numberOfRooms} Rooms` },
-                    { icon: <Bed className="w-6 h-6 text-[#00A5A7] mb-2" />, label: `${availableBeds.length} Available Beds` },
-                    { icon: <Wifi className="w-6 h-6 text-[#00A5A7] mb-2" />, label: listing.wifiAvailable ? 'WiFi Yes' : 'No WiFi' },
-                    { icon: <Users className="w-6 h-6 text-[#00A5A7] mb-2" />, label: listing.genderPreference === 0 ? 'Any Gender' : GENDER_LABELS[listing.genderPreference] },
-                  ].map(({ icon, label }) => (
-                    <div key={label} className="flex flex-col items-center p-4 bg-[#00A5A7]/5 rounded-lg">
-                      {icon}<span className="text-[#34495E]">{label}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="mb-8">
-              <CardContent className="p-6">
-                <h3 className="text-[#34495E] mb-4">Description</h3>
-                <p className="text-[#717182]">{listing.description}</p>
-              </CardContent>
-            </Card>
-
-            <Card className="mb-8">
-              <CardContent className="p-6">
-                <h3 className="text-[#34495E] mb-4">Rooms & Beds</h3>
-                <div className="space-y-4">
-                  {listing.rooms.map((room, roomIndex) => (
-                    <div key={room.id} className="border rounded-lg p-4">
-                      <div className="flex justify-between items-center mb-3">
-                        <h4 className="text-[#34495E]">Room {roomIndex + 1}</h4>
-                        <span className="text-[#FF6F61] font-semibold">EGP {room.pricePerBed.toLocaleString()}/bed/month</span>
-                      </div>
-                      {room.roomImages.length > 0 && (
-                        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
-                          {room.roomImages.map((img, i) => (
-                            <div key={i} className="relative flex-shrink-0 group cursor-pointer"
-                              onClick={() => openLightbox(room.roomImages, i)}>
-                              <img src={prefixImage(img)} alt={`Room ${roomIndex + 1} image ${i + 1}`}
-                                className="h-24 w-36 object-cover rounded transition-transform duration-150 group-hover:scale-[1.03]"
-                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                              <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 transition-colors duration-150 flex items-center justify-center">
-                                <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 drop-shadow" />
-                              </div>
-                            </div>
-                          ))}
+            {/* Recent Listings */}
+            {stats?.recentListings && stats.recentListings.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-[#34495E]">Recent Listings</CardTitle>
+                  <CardDescription>Latest properties added to the platform</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {stats.recentListings.map(listing => (
+                      <div key={listing.id}
+                        className="border rounded-lg overflow-hidden hover:border-[#00A5A7] transition-colors cursor-pointer"
+                        onClick={() => navigate(`/house/${listing.id}`)}>
+                        {listing.listingImages?.[0] ? (
+                          <img
+                            src={prefixImage(listing.listingImages[0])}
+                            alt={listing.title}
+                            className="w-full h-36 object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="w-full h-36 bg-gray-100 flex items-center justify-center">
+                            <Home className="w-8 h-8 text-gray-300" />
+                          </div>
+                        )}
+                        <div className="p-3">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <p className="text-[#34495E] font-medium text-sm line-clamp-1 hover:text-[#00A5A7]">
+                              {listing.title}
+                            </p>
+                            <Badge className={`text-xs flex-shrink-0 border-0 ${
+                              listing.status === 1 ? 'bg-[#B8E986] text-[#34495E]' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {listing.status === 1 ? 'Active' : 'Pending'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1 text-[#717182] text-xs">
+                            <MapPin className="w-3 h-3" /><span>{listing.city}</span>
+                          </div>
+                          <p className="text-[#717182] text-xs mt-1">By {listing.landlordName}</p>
                         </div>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        {room.beds.map(bed => (
-                          <button key={bed.id}
-                            onClick={() => !bed.isBooked && user?.type === 'student' && setSelectedBedId(bed.id)}
-                            disabled={bed.isBooked}
-                            className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all
-                              ${bed.isBooked
-                                ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                                : selectedBedId === bed.id
-                                  ? 'bg-[#00A5A7] border-[#00A5A7] text-white'
-                                  : 'bg-white border-[#B8E986] text-[#34495E] hover:border-[#00A5A7] cursor-pointer'}`}>
-                            <Bed className="w-4 h-4 inline mr-1" />
-                            Bed {bed.bedNumber ?? bed.id} {bed.isBooked ? '(Booked)' : '(Available)'}
-                          </button>
-                        ))}
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Recent Bookings */}
+            {stats?.recentBookings && stats.recentBookings.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-[#34495E]">Recent Bookings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {stats.recentBookings.map(booking => (
+                      <div key={booking.id} className="flex justify-between items-center p-3 border rounded-lg">
+                        <div>
+                          <p className="text-[#34495E] text-sm font-medium">Booking #{booking.id}</p>
+                          <p className="text-[#717182] text-xs">
+                            Listing #{booking.listingId} · Bed #{booking.bedId}
+                          </p>
+                        </div>
+                        <div className="text-right text-xs text-[#717182]">
+                          <p>{booking.startDate}</p>
+                          <p>→ {booking.endDate}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* ════════════ LANDLORDS ════════════ */}
+        {activeTab === 'landlords' && (
+          <div className="space-y-6">
+            {/* Search */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">Search Landlord by Email</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3 flex-wrap">
+                  <Input
+                    placeholder="landlord@example.com"
+                    value={landlordEmailInput}
+                    onChange={(e) => { setLandlordEmailInput(e.target.value); setLandlordNotFound(false); }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleLandlordSearch()}
+                    className="max-w-sm"
+                  />
+                  <Button onClick={handleLandlordSearch} disabled={landlordSearching}
+                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                    <Search className="w-4 h-4 mr-2" />
+                    {landlordSearching ? 'Searching...' : 'Search'}
+                  </Button>
+                  {foundLandlord && (
+                    <Button variant="ghost" onClick={() => { setFoundLandlord(null); setLandlordEmailInput(''); }}
+                      className="text-[#717182]">Clear</Button>
+                  )}
                 </div>
+                {landlordNotFound && <p className="text-sm text-[#FF6F61]">No landlord found with that email.</p>}
+                {foundLandlord && (
+                  <div className="p-4 border border-[#00A5A7]/30 rounded-lg bg-[#00A5A7]/5">
+                    <UserCard
+                      name={`${foundLandlord.firstName} ${foundLandlord.lastName}`}
+                      email={foundLandlord.email}
+                      accountId={foundLandlord.accountId}
+                      numericId={foundLandlord.id}
+                      extra={
+                        <div className="space-y-0.5">
+                          {foundLandlord.phoneNumber && <p className="text-sm text-[#717182]">{foundLandlord.phoneNumber}</p>}
+                          {foundLandlord.homeTown    && <p className="text-sm text-[#717182]">📍 {foundLandlord.homeTown}</p>}
+                          {foundLandlord.nationalId  && <p className="text-sm text-[#717182]">ID: {foundLandlord.nationalId}</p>}
+                        </div>
+                      }
+                      onRemove={() => handleDeleteLandlord(foundLandlord.id)}
+                      onUnban={foundLandlord.accountId ? () => handleUnban(foundLandlord.accountId!, `${foundLandlord.firstName} ${foundLandlord.lastName}`) : undefined}
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* All Landlords */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">All Landlords</CardTitle>
+                <CardDescription>All registered landlords on the platform</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
+                ) : landlords.length === 0 ? (
+                  <p className="text-[#717182] text-center py-8">No landlords found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {landlords.map(l => (
+                      <UserCard
+                        key={l.id}
+                        name={`${l.firstName} ${l.lastName}`}
+                        email={l.email}
+                        accountId={(l as any).accountId}
+                        numericId={l.id}
+                        extra={l.phoneNumber ? <p className="text-sm text-[#717182]">{l.phoneNumber}</p> : undefined}
+                        onRemove={() => handleDeleteLandlord(l.id)}
+                        onUnban={(l as any).accountId ? () => handleUnban((l as any).accountId, `${l.firstName} ${l.lastName}`) : undefined}
+                      />
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
+        )}
 
-          {/* Sidebar */}
-          <div className="lg:col-span-1">
-            <Card className="sticky top-24">
-              <CardContent className="p-6 space-y-4">
+        {/* ════════════ STUDENTS ════════════ */}
+        {activeTab === 'students' && (
+          <div className="space-y-6">
+            {/* Search */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">Search Student by Email</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3 flex-wrap">
+                  <Input
+                    placeholder="student@example.com"
+                    value={studentEmailInput}
+                    onChange={(e) => { setStudentEmailInput(e.target.value); setStudentNotFound(false); }}
+                    onKeyDown={(e) => e.key === 'Enter' && handleStudentSearch()}
+                    className="max-w-sm"
+                  />
+                  <Button onClick={handleStudentSearch} disabled={studentSearching}
+                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                    <Search className="w-4 h-4 mr-2" />
+                    {studentSearching ? 'Searching...' : 'Search'}
+                  </Button>
+                  {foundStudent && (
+                    <Button variant="ghost" onClick={() => { setFoundStudent(null); setStudentEmailInput(''); }}
+                      className="text-[#717182]">Clear</Button>
+                  )}
+                </div>
+                {studentNotFound && <p className="text-sm text-[#FF6F61]">No student found with that email.</p>}
+                {foundStudent && (
+                  <div className="p-4 border border-[#00A5A7]/30 rounded-lg bg-[#00A5A7]/5">
+                    <UserCard
+                      name={`${foundStudent.firstName} ${foundStudent.lastName}`}
+                      email={foundStudent.email}
+                      accountId={foundStudent.accountId}
+                      numericId={foundStudent.id}
+                      extra={
+                        <div className="space-y-0.5">
+                          {foundStudent.phoneNumber  && <p className="text-sm text-[#717182]">{foundStudent.phoneNumber}</p>}
+                          {foundStudent.facultyField && <p className="text-sm text-[#717182]">🎓 {foundStudent.facultyField}</p>}
+                          {foundStudent.homeTown     && <p className="text-sm text-[#717182]">📍 {foundStudent.homeTown}</p>}
+                          {foundStudent.gender !== undefined && (
+                            <p className="text-sm text-[#717182]">{foundStudent.gender === 1 ? 'Male' : 'Female'}</p>
+                          )}
+                        </div>
+                      }
+                      onRemove={() => handleDeleteStudent(foundStudent.id)}
+                      onUnban={foundStudent.accountId ? () => handleUnban(foundStudent.accountId!, `${foundStudent.firstName} ${foundStudent.lastName}`) : undefined}
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-                {listing.canViewContact ? (
+            {/* All Students */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">All Students</CardTitle>
+                <CardDescription>All registered students on the platform</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
+                ) : students.length === 0 ? (
+                  <p className="text-[#717182] text-center py-8">No students found.</p>
+                ) : (
                   <div className="space-y-3">
-                    <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
-                    {listing.landlordPhoneNumber && (
-                      <div className="flex items-center gap-2 p-3 bg-[#B8E986]/10 rounded-lg">
-                        <Phone className="w-4 h-4 text-[#00A5A7]" />
-                        <span className="text-[#34495E]">{listing.landlordPhoneNumber}</span>
-                      </div>
-                    )}
-                    {listing.exactAddress && (
-                      <div className="flex items-center gap-2 p-3 bg-[#B8E986]/10 rounded-lg">
-                        <MapPin className="w-4 h-4 text-[#00A5A7]" />
-                        <span className="text-[#34495E]">{listing.exactAddress}, {listing.city}</span>
-                      </div>
-                    )}
-                    {listing.street && (
-                      <div className="flex items-center gap-2 p-3 bg-[#B8E986]/10 rounded-lg">
-                        <MapPin className="w-4 h-4 text-[#00A5A7]" />
-                        <span className="text-[#34495E]">Street: {listing.street}</span>
-                      </div>
-                    )}
+                    {students.map(s => (
+                      <UserCard
+                        key={s.id}
+                        name={`${s.firstName} ${s.lastName}`}
+                        email={s.email}
+                        accountId={(s as any).accountId}
+                        numericId={s.id}
+                        extra={s.facultyField ? <p className="text-sm text-[#717182]">{s.facultyField}</p> : undefined}
+                        onRemove={() => handleDeleteStudent(s.id)}
+                        onUnban={(s as any).accountId ? () => handleUnban((s as any).accountId, `${s.firstName} ${s.lastName}`) : undefined}
+                      />
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* ════════════ REPORTS ════════════ */}
+        {activeTab === 'reports' && (
+          <div className="space-y-6">
+
+            {/* Search by listing — TOP */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-[#34495E]">Search Reports by Listing</CardTitle>
+                <CardDescription>Look up all reports filed against a specific listing ID</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3 flex-wrap">
+                  <Input
+                    placeholder="Listing ID (e.g. 6)"
+                    value={listingIdInput}
+                    onChange={(e) => setListingIdInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearchByListing()}
+                    className="max-w-xs"
+                  />
+                  <Button onClick={handleSearchByListing} disabled={listingReportsLoading}
+                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                    <Search className="w-4 h-4 mr-2" />
+                    {listingReportsLoading ? 'Searching...' : 'Search'}
+                  </Button>
+                  {searchedListingId && (
+                    <Button variant="ghost" onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
+                      className="text-[#717182]">Clear</Button>
+                  )}
+                </div>
+                {listingReportsLoading ? (
+                  <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-16 bg-gray-100 rounded animate-pulse" />)}</div>
+                ) : searchedListingId && listingReports.length === 0 ? (
+                  <p className="text-sm text-[#717182]">No reports found for Listing #{searchedListingId}.</p>
+                ) : listingReports.length > 0 ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-[#717182] font-medium">
+                      {listingReports.length} report{listingReports.length !== 1 ? 's' : ''} for Listing #{searchedListingId}
+                    </p>
+                    {listingReports.map((report, i) => {
+                      const { label, color } = statusInfo(report.status);
+                      return (
+                        <div key={i} className="p-3 border rounded-lg space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={`${color} border text-xs`}>{label}</Badge>
+                            <span className="text-xs text-[#717182]">
+                              {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </span>
+                          </div>
+                          <p className="text-sm text-[#34495E]">{report.reason}</p>
+                          <p className="text-xs text-[#717182]">
+                            Reporter: <span className="font-mono">{report.reporterId?.slice(0, 8)}…</span>
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            {/* All Reports */}
+            <Card>
+              <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-[#34495E]">All Reports</CardTitle>
+                  <CardDescription>Review and manage user reports</CardDescription>
+                </div>
+                <Select value={reportStatus} onValueChange={setReportStatus}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Reports</SelectItem>
+                    <SelectItem value="1">Pending</SelectItem>
+                    <SelectItem value="2">Resolved</SelectItem>
+                    <SelectItem value="3">Dismissed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </CardHeader>
+              <CardContent>
+                {reportsLoading ? (
+                  <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 bg-gray-100 rounded animate-pulse" />)}</div>
+                ) : reports.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Flag className="w-12 h-12 text-[#717182] mx-auto mb-3" />
+                    <p className="text-[#717182]">No reports found.</p>
                   </div>
                 ) : (
-                  <div className="p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg text-sm text-[#717182]">
-                    Complete a booking and payment to unlock landlord contact and exact address.
-                  </div>
-                )}
-
-                {user?.type === 'student' && (
-                  <div className="space-y-3 border-t pt-4">
-                    <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
-                    {selectedBedId && (
-                      <div className="p-2 bg-[#00A5A7]/10 rounded text-sm text-[#00A5A7]">
-                        Selected: Bed #{selectedBedId}
-                        {selectedBedPrice && ` — EGP ${selectedBedPrice.toLocaleString()}/month`}
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <Label>Start Date</Label>
-                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>End Date</Label>
-                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                        min={startDate || new Date().toISOString().split('T')[0]} />
-                    </div>
-                    <Button
-                      onClick={handleBooking}
-                      disabled={bookingLoading || !selectedBedId || !startDate || !endDate}
-                      className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white h-12"
-                    >
-                      {bookingLoading ? 'Creating Booking...' : 'Book & Pay'}
-                    </Button>
-                    {!selectedBedId && (
-                      <p className="text-[#717182] text-xs text-center">Select an available bed above to book</p>
-                    )}
-                  </div>
-                )}
-
-                <div className="border-t pt-4">
-                  <h4 className="text-[#34495E] mb-3 font-medium">Property Details</h4>
-                  <div className="space-y-2 text-sm text-[#717182]">
-                    <div className="flex justify-between">
-                      <span>Listing ID:</span><span className="text-[#34495E]">#{listing.id}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>City:</span><span className="text-[#34495E]">{listing.city}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Furnished:</span><span className="text-[#34495E]">{listing.furnished ? 'Yes' : 'No'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Published:</span>
-                      <span className="text-[#34495E]">{new Date(listing.publishedAt).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-
-                  {user?.type === 'student' && (
-                    <div className="mt-4 pt-4 border-t">
-                      <ReportModal
-                        trigger={
-                          <Button variant="outline" size="sm"
-                            className="w-full border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
-                            <Flag className="w-4 h-4 mr-2" />Report this Listing
-                          </Button>
-                        }
-                        title="Report this Listing"
-                        description="Describe the issue with this listing. Our team will review your report within 24 hours."
-                        onSubmit={handleReportListing}
-                      />
-                    </div>
-                  )}
-
-                  {isOwnListing && bookings.length > 0 && (
-                    <div className="mt-4 pt-4 border-t space-y-3">
-                      <h4 className="text-[#34495E] font-medium text-sm">Students in this listing</h4>
-                      {bookings.map((booking) => (
-                        <div key={booking.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="text-[#34495E] text-sm font-medium">{booking.studentName || `Student #${booking.studentId}`}</p>
-                            <p className="text-[#717182] text-xs">Bed #{booking.bedId}</p>
+                  <div className="space-y-4">
+                    {reports.map((report, index) => {
+                      const { label, color } = statusInfo(report.status);
+                      const isUpdating = updatingReportIdx === index;
+                      return (
+                        <div key={index} className="p-4 border rounded-lg space-y-3">
+                          <div className="flex items-start justify-between gap-4 flex-wrap">
+                            <div className="space-y-1 flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge className={`${color} border text-xs`}>{label}</Badge>
+                                <span className="text-xs text-[#717182]">
+                                  {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </span>
+                                <span className="text-xs text-[#717182]">
+                                  {report.type === 1 ? '📋 Listing' : '👤 User'}
+                                </span>
+                                {report.id && <span className="text-xs text-[#717182]">ID: #{report.id}</span>}
+                              </div>
+                              <p className="text-sm text-[#34495E]">{report.reason}</p>
+                              <p className="text-xs text-[#717182]">
+                                Reporter: <span className="font-mono">{report.reporterId?.slice(0, 8)}…</span>
+                                {' · '}
+                                Reported: <span className="font-mono">{report.reportedId?.slice(0, 8)}…</span>
+                              </p>
+                              {!report.id && report.status === 1 && (
+                                <p className="text-xs text-amber-500">
+                                  ⚠ No report ID from API — ask backend to include "id" in GetAllReports.
+                                </p>
+                              )}
+                            </div>
+                            {report.status === 1 && (
+                              <div className="flex gap-2 flex-shrink-0">
+                                <Button size="sm" disabled={isUpdating}
+                                  onClick={() => handleUpdateReport(report, index, 2)}
+                                  className="bg-green-600 hover:bg-green-700 text-white">
+                                  <CheckCircle className="w-4 h-4 mr-1" />
+                                  {isUpdating ? '…' : 'Resolve'}
+                                </Button>
+                                <Button size="sm" variant="outline" disabled={isUpdating}
+                                  onClick={() => handleUpdateReport(report, index, 3)}
+                                  className="border-gray-300 text-gray-500 hover:bg-gray-100">
+                                  <XCircle className="w-4 h-4 mr-1" />
+                                  {isUpdating ? '…' : 'Dismiss'}
+                                </Button>
+                              </div>
+                            )}
+                            {report.status === 2 && (
+                              <span className="flex items-center gap-1 text-green-600 text-sm flex-shrink-0">
+                                <CheckCircle className="w-4 h-4" />Resolved
+                              </span>
+                            )}
+                            {report.status === 3 && (
+                              <span className="flex items-center gap-1 text-gray-400 text-sm flex-shrink-0">
+                                <XCircle className="w-4 h-4" />Dismissed
+                              </span>
+                            )}
                           </div>
-                          <ReportModal
-                            trigger={
-                              <Button variant="ghost" size="sm" className="text-[#FF6F61] hover:bg-[#FF6F61]/10">
-                                <Flag className="w-4 h-4" />
-                              </Button>
-                            }
-                            title={`Report ${booking.studentName || 'Student'}`}
-                            description="Describe the issue with this student. Our team will review your report."
-                            onSubmit={(reason) => handleReportStudent(reason, String(booking.studentId))}
-                          />
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
