@@ -397,7 +397,7 @@ export const Admin = () => {
     }
     setUpdatingReportIdx(index);
     try {
-      await api.patch(`/Report/UpdateReport/${report.id}`, { status: newStatus });
+      await api.put(`/Report/UpdateReport/${report.id}`, { status: newStatus });
       toast.success(newStatus === 2 ? 'Report resolved.' : 'Report rejected.');
       await fetchReports();
     } catch (err: unknown) {
