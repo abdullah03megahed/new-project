@@ -398,7 +398,7 @@ export const Admin = () => {
     setUpdatingReportIdx(index);
     try {
       await api.patch(`/Report/UpdateReport/${report.id}`, { status: newStatus });
-      toast.success(newStatus === 2 ? 'Report resolved.' : 'Report dismissed.');
+      toast.success(newStatus === 2 ? 'Report resolved.' : 'Report rejected.');
       await fetchReports();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to update report.');
@@ -777,7 +777,7 @@ export const Admin = () => {
                     Review and manage user reports.
                     {reports.length > 0 && !reports[0]?.id && (
                       <span className="text-amber-600 ml-2 text-xs">
-                        ⚠ Backend must include "id" in GetAllReports response to enable Resolve/Dismiss.
+                        ⚠ Backend must include "id" in GetAllReports response to enable Resolve/Reject.
                       </span>
                     )}
                   </CardDescription>
@@ -788,7 +788,7 @@ export const Admin = () => {
                     <SelectItem value="all">All Reports</SelectItem>
                     <SelectItem value="1">Pending</SelectItem>
                     <SelectItem value="2">Resolved</SelectItem>
-                    <SelectItem value="3">Dismissed</SelectItem>
+                    <SelectItem value="3">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
               </CardHeader>
@@ -839,7 +839,7 @@ export const Admin = () => {
                                   onClick={() => handleUpdateReport(report, index, 3)}
                                   className="border-gray-300 text-gray-500 hover:bg-gray-100">
                                   <XCircle className="w-4 h-4 mr-1" />
-                                  {isUpdating ? '…' : 'Dismiss'}
+                                  {isUpdating ? '…' : 'Reject'}
                                 </Button>
                               </div>
                             )}
@@ -850,7 +850,7 @@ export const Admin = () => {
                             )}
                             {report.status === 3 && (
                               <span className="flex items-center gap-1 text-gray-400 text-sm flex-shrink-0">
-                                <XCircle className="w-4 h-4" />Dismissed
+                                <XCircle className="w-4 h-4" />Rejected
                               </span>
                             )}
                           </div>
