@@ -37,12 +37,12 @@ interface RecentBooking {
 interface Landlord {
   id: number; firstName: string; lastName: string;
   email: string; phoneNumber?: string; nationalId?: string;
-  homeTown?: string; birthDate?: string; accountId?: string;
+  homeTown?: string; birthDate?: string; accountId: string; isBanned?: boolean;
 }
 interface Student {
   id: number; firstName: string; lastName: string;
   email: string; phoneNumber?: string; gender?: number;
-  facultyField?: string; homeTown?: string; accountId?: string;
+  facultyField?: string; homeTown?: string; accountId: string; isBanned?: boolean;
 }
 interface Report {
   id?: number;
@@ -79,7 +79,7 @@ interface BanDialogProps {
 
 const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
   const [open, setOpen] = useState(false);
-  const [banType, setBanType] = useState<'1' | '2'>('1'); // 1=temporary, 2=permanent
+  const [banType, setBanType] = useState<'1' | '2'>('1');
   const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
@@ -96,15 +96,8 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
     }
     setLoading(true);
     try {
-      const payload: any = {
-        userId,
-        type: Number(banType),
-        reason,
-      };
-      // Only include endDate for temporary ban (type 1)
-      if (banType === '1') {
-        payload.endDate = endDate;
-      }
+      const payload: any = { userId, type: Number(banType), reason };
+      if (banType === '1') payload.endDate = endDate;
       await api.post('/Ban/BanUser', payload);
       toast.success(
         banType === '2'
@@ -134,54 +127,35 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[#34495E]">Ban {userName}</DialogTitle>
-          <DialogDescription>
-            Choose the type of ban to apply to this account.
-          </DialogDescription>
+          <DialogDescription>Choose the type of ban to apply to this account.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleBan} className="space-y-4 mt-2">
-
-          {/* Ban type */}
           <div className="space-y-2">
             <Label>Ban Type</Label>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setBanType('1')}
+              <button type="button" onClick={() => setBanType('1')}
                 className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                  banType === '1'
-                    ? 'border-orange-400 bg-orange-50'
-                    : 'border-gray-200 hover:border-orange-200'
-                }`}
-              >
+                  banType === '1' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:border-orange-200'
+                }`}>
                 <p className="font-medium text-sm text-[#34495E]">⏱ Temporary</p>
                 <p className="text-xs text-[#717182] mt-1">Ban until a specific date</p>
               </button>
-              <button
-                type="button"
-                onClick={() => setBanType('2')}
+              <button type="button" onClick={() => setBanType('2')}
                 className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                  banType === '2'
-                    ? 'border-red-500 bg-red-50'
-                    : 'border-gray-200 hover:border-red-200'
-                }`}
-              >
+                  banType === '2' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-red-200'
+                }`}>
                 <p className="font-medium text-sm text-[#34495E]">🚫 Permanent</p>
                 <p className="text-xs text-[#717182] mt-1">Block email forever</p>
               </button>
             </div>
           </div>
 
-          {/* End date — only for temporary */}
           {banType === '1' && (
             <div className="space-y-2">
               <Label>Ban Until</Label>
-              <Input
-                type="date"
-                value={endDate}
+              <Input type="date" value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                min={minDateStr}
-                required
-              />
+                min={minDateStr} required />
             </div>
           )}
 
@@ -191,28 +165,21 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
             </div>
           )}
 
-          {/* Reason */}
           <div className="space-y-2">
             <Label>Reason</Label>
-            <Input
-              placeholder="Reason for ban..."
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              required
-            />
+            <Input placeholder="Reason for ban..." value={reason}
+              onChange={(e) => setReason(e.target.value)} required />
           </div>
 
           <div className="flex gap-3 justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>
               Cancel
             </Button>
-            <Button
-              type="submit"
+            <Button type="submit"
               disabled={loading || !reason || (banType === '1' && !endDate)}
               className={banType === '2'
                 ? 'bg-red-600 hover:bg-red-700 text-white'
-                : 'bg-orange-500 hover:bg-orange-600 text-white'}
-            >
+                : 'bg-orange-500 hover:bg-orange-600 text-white'}>
               {loading ? 'Banning...' : banType === '2' ? 'Permanently Ban' : 'Ban Until Date'}
             </Button>
           </div>
@@ -386,16 +353,40 @@ export const Admin = () => {
     } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed.'); }
   };
 
-  const handleUnban = async (accountId: string, name: string) => {
+  // ─── Unban — updates state so UI reflects change immediately ───────────────
+  const handleUnban = async (
+    accountId: string,
+    name: string,
+    type: 'landlord' | 'student',
+    id: number
+  ) => {
     try {
       await api.put(`/Ban/UnBanUser/${accountId}`, {});
       toast.success(`${name} has been unbanned.`);
-    } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed to unban.'); }
+
+      if (type === 'landlord') {
+        setLandlords(prev => prev.map(l => l.id === id ? { ...l, isBanned: false } : l));
+        setFoundLandlord(prev => prev?.id === id ? { ...prev, isBanned: false } : prev);
+      } else {
+        setStudents(prev => prev.map(s => s.id === id ? { ...s, isBanned: false } : s));
+        setFoundStudent(prev => prev?.id === id ? { ...prev, isBanned: false } : prev);
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to unban.');
+    }
   };
 
-  // Report update — GetAllReports does NOT return id in its schema.
-  // We must ask the backend team to add id to the response.
-  // Until then, show both buttons but inform admin if it fails.
+  // ─── Ban callback — updates state so Ban button flips to Unban immediately ─
+  const handleBanned = (type: 'landlord' | 'student', id: number) => {
+    if (type === 'landlord') {
+      setLandlords(prev => prev.map(l => l.id === id ? { ...l, isBanned: true } : l));
+      setFoundLandlord(prev => prev?.id === id ? { ...prev, isBanned: true } : prev);
+    } else {
+      setStudents(prev => prev.map(s => s.id === id ? { ...s, isBanned: true } : s));
+      setFoundStudent(prev => prev?.id === id ? { ...prev, isBanned: true } : prev);
+    }
+  };
+
   const handleUpdateReport = async (report: Report, index: number, newStatus: number) => {
     if (!report.id) {
       toast.error(
@@ -488,7 +479,6 @@ export const Admin = () => {
               }
             </div>
 
-            {/* ── Recent Listings — vertical list layout ── */}
             {stats?.recentListings && stats.recentListings.length > 0 && (
               <Card>
                 <CardHeader>
@@ -498,30 +488,21 @@ export const Admin = () => {
                 <CardContent>
                   <div className="space-y-4">
                     {stats.recentListings.map(listing => (
-                      <div
-                        key={listing.id}
+                      <div key={listing.id}
                         className="flex flex-col sm:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7] transition-colors cursor-pointer"
-                        onClick={() => navigate(`/house/${listing.id}`)}
-                      >
-                        {/* Cover image */}
+                        onClick={() => navigate(`/house/${listing.id}`)}>
                         {listing.listingImages?.[0] ? (
-                          <img
-                            src={prefixImage(listing.listingImages[0])}
-                            alt={listing.title}
+                          <img src={prefixImage(listing.listingImages[0])} alt={listing.title}
                             className="w-full sm:w-40 h-28 object-cover rounded-lg flex-shrink-0"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                          />
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                         ) : (
                           <div className="w-full sm:w-40 h-28 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
                             <Home className="w-8 h-8 text-gray-300" />
                           </div>
                         )}
-                        {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2 mb-1 flex-wrap">
-                            <p className="text-[#34495E] font-medium hover:text-[#00A5A7] line-clamp-1">
-                              {listing.title}
-                            </p>
+                            <p className="text-[#34495E] font-medium hover:text-[#00A5A7] line-clamp-1">{listing.title}</p>
                             <Badge className={`text-xs flex-shrink-0 border-0 ${
                               listing.status === 1 ? 'bg-[#B8E986] text-[#34495E]' : 'bg-gray-100 text-gray-500'
                             }`}>
@@ -544,7 +525,6 @@ export const Admin = () => {
               </Card>
             )}
 
-            {/* Recent Bookings */}
             {stats?.recentBookings && stats.recentBookings.length > 0 && (
               <Card>
                 <CardHeader>
@@ -601,7 +581,8 @@ export const Admin = () => {
                       email={foundLandlord.email}
                       accountId={foundLandlord.accountId}
                       numericId={foundLandlord.id}
-                      onBanned={() => handleLandlordSearch()}
+                      isBanned={foundLandlord.isBanned}
+                      onBanned={() => handleBanned('landlord', foundLandlord.id)}
                       extra={
                         <div className="space-y-0.5">
                           {foundLandlord.phoneNumber && <p className="text-sm text-[#717182]">{foundLandlord.phoneNumber}</p>}
@@ -610,7 +591,9 @@ export const Admin = () => {
                         </div>
                       }
                       onRemove={() => handleDeleteLandlord(foundLandlord.id)}
-                      onUnban={foundLandlord.accountId ? () => handleUnban(foundLandlord.accountId!, `${foundLandlord.firstName} ${foundLandlord.lastName}`) : undefined}
+                      onUnban={foundLandlord.accountId
+                        ? () => handleUnban(foundLandlord.accountId, `${foundLandlord.firstName} ${foundLandlord.lastName}`, 'landlord', foundLandlord.id)
+                        : undefined}
                     />
                   </div>
                 )}
@@ -631,12 +614,17 @@ export const Admin = () => {
                   <div className="space-y-3">
                     {landlords.map(l => (
                       <UserCard key={l.id}
-                        name={`${l.firstName} ${l.lastName}`} email={l.email}
-                        accountId={(l as any).accountId} numericId={l.id}
+                        name={`${l.firstName} ${l.lastName}`}
+                        email={l.email}
+                        accountId={l.accountId}
+                        numericId={l.id}
+                        isBanned={l.isBanned}
                         extra={l.phoneNumber ? <p className="text-sm text-[#717182]">{l.phoneNumber}</p> : undefined}
                         onRemove={() => handleDeleteLandlord(l.id)}
-                        onBanned={() => {}}
-                        onUnban={(l as any).accountId ? () => handleUnban((l as any).accountId, `${l.firstName} ${l.lastName}`) : undefined}
+                        onBanned={() => handleBanned('landlord', l.id)}
+                        onUnban={l.accountId
+                          ? () => handleUnban(l.accountId, `${l.firstName} ${l.lastName}`, 'landlord', l.id)
+                          : undefined}
                       />
                     ))}
                   </div>
@@ -676,7 +664,8 @@ export const Admin = () => {
                       email={foundStudent.email}
                       accountId={foundStudent.accountId}
                       numericId={foundStudent.id}
-                      onBanned={() => handleStudentSearch()}
+                      isBanned={foundStudent.isBanned}
+                      onBanned={() => handleBanned('student', foundStudent.id)}
                       extra={
                         <div className="space-y-0.5">
                           {foundStudent.phoneNumber  && <p className="text-sm text-[#717182]">{foundStudent.phoneNumber}</p>}
@@ -685,7 +674,9 @@ export const Admin = () => {
                         </div>
                       }
                       onRemove={() => handleDeleteStudent(foundStudent.id)}
-                      onUnban={foundStudent.accountId ? () => handleUnban(foundStudent.accountId!, `${foundStudent.firstName} ${foundStudent.lastName}`) : undefined}
+                      onUnban={foundStudent.accountId
+                        ? () => handleUnban(foundStudent.accountId, `${foundStudent.firstName} ${foundStudent.lastName}`, 'student', foundStudent.id)
+                        : undefined}
                     />
                   </div>
                 )}
@@ -706,12 +697,17 @@ export const Admin = () => {
                   <div className="space-y-3">
                     {students.map(s => (
                       <UserCard key={s.id}
-                        name={`${s.firstName} ${s.lastName}`} email={s.email}
-                        accountId={(s as any).accountId} numericId={s.id}
+                        name={`${s.firstName} ${s.lastName}`}
+                        email={s.email}
+                        accountId={s.accountId}
+                        numericId={s.id}
+                        isBanned={s.isBanned}
                         extra={s.facultyField ? <p className="text-sm text-[#717182]">{s.facultyField}</p> : undefined}
                         onRemove={() => handleDeleteStudent(s.id)}
-                        onBanned={() => {}}
-                        onUnban={(s as any).accountId ? () => handleUnban((s as any).accountId, `${s.firstName} ${s.lastName}`) : undefined}
+                        onBanned={() => handleBanned('student', s.id)}
+                        onUnban={s.accountId
+                          ? () => handleUnban(s.accountId, `${s.firstName} ${s.lastName}`, 'student', s.id)
+                          : undefined}
                       />
                     ))}
                   </div>
@@ -724,8 +720,6 @@ export const Admin = () => {
         {/* ════════ REPORTS ════════ */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
-
-            {/* Search by listing — TOP */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Reports by Listing</CardTitle>
@@ -775,14 +769,12 @@ export const Admin = () => {
               </CardContent>
             </Card>
 
-            {/* All Reports */}
             <Card>
               <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
                   <CardTitle className="text-[#34495E]">All Reports</CardTitle>
                   <CardDescription>
                     Review and manage user reports.
-                    {/* Inform admin about the id limitation */}
                     {reports.length > 0 && !reports[0]?.id && (
                       <span className="text-amber-600 ml-2 text-xs">
                         ⚠ Backend must include "id" in GetAllReports response to enable Resolve/Dismiss.
