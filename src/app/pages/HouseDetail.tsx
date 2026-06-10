@@ -11,10 +11,12 @@ import { Textarea } from '../components/ui/textarea';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from '../components/ui/dialog';
-import { MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users, X, ChevronLeft, ChevronRight, ZoomIn, Flag } from 'lucide-react';
+import {
+  MapPin, Bed, Home, ArrowLeft, Phone, Wifi, Users,
+  X, ChevronLeft, ChevronRight, ZoomIn, Flag,
+} from 'lucide-react';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '../components/ui/carousel';
 import { toast } from 'sonner';
-import { PaymentModal } from '../components/PaymentModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,7 +45,7 @@ interface Listing {
   exactAddress: string | null;
 }
 
-const IMAGE_BASE = 'https://unimate.runasp.net/';
+const IMAGE_BASE   = 'https://unimate.runasp.net/';
 const GENDER_LABELS: Record<number, string> = { 1: 'Male Only', 2: 'Female Only' };
 
 const prefixImage = (img: string) => {
@@ -53,10 +55,10 @@ const prefixImage = (img: string) => {
 };
 
 const getLandlordName = (listing: Listing): string => {
-  if (listing.landlordName && listing.landlordName.trim()) return listing.landlordName;
+  if (listing.landlordName?.trim()) return listing.landlordName;
   if (listing.landlord?.name) return listing.landlord.name;
   if (listing.landlord?.firstName || listing.landlord?.lastName)
-    return `${listing.landlord.firstName || ''} ${listing.landlord.lastName || ''}`.trim();
+    return `${listing.landlord.firstName ?? ''} ${listing.landlord.lastName ?? ''}`.trim();
   return '';
 };
 
@@ -70,8 +72,8 @@ interface ReportModalProps {
 }
 
 const ReportModal = ({ trigger, title, description, onSubmit }: ReportModalProps) => {
-  const [open, setOpen] = useState(false);
-  const [reason, setReason] = useState('');
+  const [open, setOpen]       = useState(false);
+  const [reason, setReason]   = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -114,14 +116,9 @@ const ReportModal = ({ trigger, title, description, onSubmit }: ReportModalProps
             <p className="text-xs text-[#717182]">{reason.length}/500 characters</p>
           </div>
           <div className="flex gap-3 justify-end">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={loading || !reason.trim()}
-              className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
-            >
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>Cancel</Button>
+            <Button type="submit" disabled={loading || !reason.trim()}
+              className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white">
               {loading ? 'Submitting...' : 'Submit Report'}
             </Button>
           </div>
@@ -133,11 +130,7 @@ const ReportModal = ({ trigger, title, description, onSubmit }: ReportModalProps
 
 // ─── Lightbox ─────────────────────────────────────────────────────────────────
 
-interface LightboxProps {
-  images: string[];
-  initialIndex: number;
-  onClose: () => void;
-}
+interface LightboxProps { images: string[]; initialIndex: number; onClose: () => void; }
 
 const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
   const [current, setCurrent] = useState(initialIndex);
@@ -145,13 +138,13 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
   const next = useCallback(() => setCurrent(i => (i + 1) % images.length), [images.length]);
 
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
+    const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
       if (e.key === 'ArrowLeft') prev();
       if (e.key === 'ArrowRight') next();
     };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, [onClose, prev, next]);
 
   useEffect(() => {
@@ -161,9 +154,9 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backgroundColor: 'rgba(10, 15, 30, 0.95)' }} onClick={onClose}>
+      style={{ backgroundColor: 'rgba(10,15,30,0.95)' }} onClick={onClose}>
       <button onClick={onClose}
-        className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+        className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center">
         <X className="w-5 h-5 text-white" />
       </button>
       <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm">
@@ -171,17 +164,18 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
       </div>
       {images.length > 1 && (
         <button onClick={(e) => { e.stopPropagation(); prev(); }}
-          className="absolute left-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+          className="absolute left-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center">
           <ChevronLeft className="w-6 h-6 text-white" />
         </button>
       )}
-      <div className="max-w-5xl max-h-[85vh] w-full mx-16 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+      <div className="max-w-5xl max-h-[85vh] w-full mx-16 flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}>
         <img src={prefixImage(images[current])} alt={`Image ${current + 1}`}
           className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" />
       </div>
       {images.length > 1 && (
         <button onClick={(e) => { e.stopPropagation(); next(); }}
-          className="absolute right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+          className="absolute right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center">
           <ChevronRight className="w-6 h-6 text-white" />
         </button>
       )}
@@ -203,26 +197,23 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const HouseDetail = () => {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const { user } = useAuth();
+  const { id }    = useParams();
+  const navigate  = useNavigate();
+  const { user }  = useAuth();
 
-  const [listing, setListing] = useState<Listing | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedBedId, setSelectedBedId] = useState<number | null>(null);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [listing, setListing]               = useState<Listing | null>(null);
+  const [loading, setLoading]               = useState(true);
+  const [selectedBedId, setSelectedBedId]   = useState<number | null>(null);
+  const [durationMonths, setDurationMonths] = useState<number | ''>(1); // ← new field
   const [bookingLoading, setBookingLoading] = useState(false);
-  const [bookings, setBookings] = useState<BookingInfo[]>([]);
+  const [bookingDone, setBookingDone]       = useState(false); // ← track if just booked
 
-  // Payment modal state
-  const [paymentOpen, setPaymentOpen] = useState(false);
-  const [pendingBookingId, setPendingBookingId] = useState<number | null>(null);
-  const [pendingAmount, setPendingAmount] = useState<number | undefined>(undefined);
+  // Landlord: students who booked beds in this listing
+  const [bookedStudents, setBookedStudents] = useState<BookingInfo[]>([]);
 
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex]   = useState(0);
+  const [lightboxOpen, setLightboxOpen]     = useState(false);
 
   const openLightbox = (images: string[], index: number) => {
     setLightboxImages(images);
@@ -230,86 +221,69 @@ export const HouseDetail = () => {
     setLightboxOpen(true);
   };
 
+  // Fetch listing
   useEffect(() => {
-    const fetchListing = async () => {
-      try {
-        const data = await api.get<Listing>(`/Listing/${id}`);
-        setListing(data);
-      } catch {
-        toast.error('Failed to load listing.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (id) fetchListing();
+    if (!id) return;
+    api.get<Listing>(`/Listing/${id}`)
+      .then(data => setListing(data))
+      .catch(() => toast.error('Failed to load listing.'))
+      .finally(() => setLoading(false));
   }, [id]);
 
+  // Landlord: fetch all bookings on this listing so they can see & report students
   useEffect(() => {
-    if (!user || user.type !== 'landlord' || !id) return;
-    const fetchBookings = async () => {
-      try {
-        const data = await api.get<any>(`/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=50`);
-        const listingBookings = (data.data || []).filter((b: any) => String(b.listingId) === String(id));
-        const detailed = await Promise.all(
-          listingBookings.map((b: any) => api.get<BookingInfo>(`/Booking/GetBooking/${b.id}`).catch(() => null))
+    if (!user || user.type !== 'landlord' || !id || !user.id) return;
+
+    api.get<any>(`/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=100`)
+      .then(async data => {
+        const listingBookings = (data.data || []).filter(
+          (b: any) => String(b.listingId) === String(id)
         );
-        setBookings(detailed.filter(Boolean) as BookingInfo[]);
-      } catch {
-        // silently fail
-      }
-    };
-    fetchBookings();
+        if (!listingBookings.length) return;
+
+        const detailed = await Promise.all(
+          listingBookings.map((b: any) =>
+            api.get<BookingInfo>(`/Booking/GetBooking/${b.id}`).catch(() => null)
+          )
+        );
+        setBookedStudents(detailed.filter(Boolean) as BookingInfo[]);
+      })
+      .catch(() => { /* silently fail */ });
   }, [user, id]);
 
-  // ─── Step 1: Create booking → open payment modal ──────────────────────────
+  // ─── Create Booking ───────────────────────────────────────────────────────
+  // New API: POST /api/Booking/CreateBooking  { bedId, durationInMonths }
+  // No dates — backend calculates them from duration.
 
   const handleBooking = async () => {
-    if (!selectedBedId || !startDate || !endDate) {
-      toast.error('Please select a bed and dates.');
+    if (!selectedBedId) {
+      toast.error('Please select a bed.');
+      return;
+    }
+    if (!durationMonths || Number(durationMonths) < 1) {
+      toast.error('Please enter a valid duration (minimum 1 month).');
       return;
     }
     setBookingLoading(true);
     try {
-      const bookingResponse = await api.post<any>('/Booking/CreateBooking', {
+      await api.post('/Booking/CreateBooking', {
         bedId: selectedBedId,
-        startDate,
-        endDate,
+        durationInMonths: Number(durationMonths),
       });
 
-      // Handle plain number, { id }, or { bookingId }
-      const bookingId =
-        typeof bookingResponse === 'number'
-          ? bookingResponse
-          : bookingResponse?.id ?? bookingResponse?.bookingId ?? null;
+      toast.success('Booking created! Contact details are now unlocked.');
 
-      if (!bookingId) {
-        toast.error('Booking created but no ID returned. Please contact support.');
-        return;
-      }
-
-      // Store the booking ID and open payment modal
-      setPendingBookingId(bookingId);
-      setPendingAmount(listing?.rooms
-        .flatMap(r => r.beds.map(b => ({ id: b.id, price: r.pricePerBed })))
-        .find(b => b.id === selectedBedId)?.price);
-      setPaymentOpen(true);
+      // Refresh listing — backend now returns canViewContact: true
+      const updated = await api.get<Listing>(`/Listing/${id}`);
+      setListing(updated);
+      setSelectedBedId(null);
+      setDurationMonths(1);
+      setBookingDone(true); // ← hide booking form, show contact
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Booking failed.');
     } finally {
       setBookingLoading(false);
     }
-  };
-
-  // ─── Step 2: After successful payment, refresh listing ───────────────────
-
-  const handlePaymentSuccess = async () => {
-    toast.success('Booking confirmed! Contact details are now unlocked.');
-    const updated = await api.get<Listing>(`/Listing/${id}`);
-    setListing(updated);
-    setSelectedBedId(null);
-    setStartDate('');
-    setEndDate('');
-    setPendingBookingId(null);
   };
 
   const handleReportListing = async (reason: string) => {
@@ -318,9 +292,14 @@ export const HouseDetail = () => {
     await api.post('/Report/CreateReport', { reason, reportedId, listingId: listing.id });
   };
 
-  const handleReportStudent = async (reason: string, studentAccountId: string) => {
+  const handleReportStudent = async (reason: string, studentId: number) => {
     if (!listing) return;
-    await api.post('/Report/CreateReport', { reason, reportedId: studentAccountId, listingId: listing.id });
+    // Use student numeric id as string — backend accepts string for reportedId
+    await api.post('/Report/CreateReport', {
+      reason,
+      reportedId: String(studentId),
+      listingId: listing.id,
+    });
   };
 
   if (loading) {
@@ -336,41 +315,40 @@ export const HouseDetail = () => {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-[#34495E] mb-4">Listing not found</h2>
-          <Button onClick={() => navigate('/houses')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90">Back to Houses</Button>
+          <Button onClick={() => navigate('/houses')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90">
+            Back to Houses
+          </Button>
         </div>
       </div>
     );
   }
 
-  const allImages = [...listing.listingImages, ...listing.rooms.flatMap(r => r.roomImages)];
+  const allImages = [
+    ...listing.listingImages,
+    ...listing.rooms.flatMap(r => r.roomImages),
+  ];
+
   const availableBeds = listing.rooms.flatMap(room =>
-    room.beds.filter(b => !b.isBooked).map(b => ({ ...b, roomName: room.name, pricePerBed: room.pricePerBed }))
+    room.beds.filter(b => !b.isBooked).map(b => ({ ...b, pricePerBed: room.pricePerBed }))
   );
+
   const selectedBedPrice = listing.rooms
     .flatMap(r => r.beds.map(b => ({ ...b, price: r.pricePerBed })))
     .find(b => b.id === selectedBedId)?.price;
-  const landlordName = getLandlordName(listing);
-  const isOwnListing = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
+
+  const landlordName  = getLandlordName(listing);
+  const isOwnListing  = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
+  // Show contact if already unlocked OR just completed booking
+  const showContact   = listing.canViewContact || bookingDone;
 
   return (
     <div className="min-h-screen bg-white">
+
       {lightboxOpen && (
         <Lightbox images={lightboxImages} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />
       )}
 
-      {/* Payment modal — opens after booking is created */}
-      {pendingBookingId && (
-        <PaymentModal
-          open={paymentOpen}
-          onClose={() => setPaymentOpen(false)}
-          onSuccess={handlePaymentSuccess}
-          type="booking"
-          resourceId={pendingBookingId}
-          label={`Booking for ${listing.title}`}
-          amount={pendingAmount}
-        />
-      )}
-
+      {/* Back nav */}
       <div className="bg-[#B19CD9]/5 border-b">
         <div className="container mx-auto px-4 py-4">
           <Button variant="ghost" onClick={() => navigate('/houses')} className="text-[#34495E] hover:text-[#00A5A7]">
@@ -382,19 +360,26 @@ export const HouseDetail = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-          {/* Main Content */}
+          {/* ── Main Content ── */}
           <div className="lg:col-span-2">
+
+            {/* Carousel */}
             {allImages.length > 0 ? (
               <div className="mb-8">
                 <Carousel>
                   <CarouselContent>
                     {allImages.map((image, index) => (
                       <CarouselItem key={index}>
-                        <div className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer"
-                          onClick={() => openLightbox(allImages, index)}>
-                          <img src={prefixImage(image)} alt={`${listing.title} - Image ${index + 1}`}
+                        <div
+                          className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer"
+                          onClick={() => openLightbox(allImages, index)}
+                        >
+                          <img
+                            src={prefixImage(image)}
+                            alt={`${listing.title} - Image ${index + 1}`}
                             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 flex items-center justify-center">
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/50 rounded-full p-3">
                               <ZoomIn className="w-6 h-6 text-white" />
@@ -415,35 +400,41 @@ export const HouseDetail = () => {
               </div>
             )}
 
+            {/* Title & badges */}
             <div className="mb-6">
               <div className="flex items-start justify-between mb-2 flex-wrap gap-2">
                 <h1 className="text-[#34495E]">{listing.title}</h1>
                 <div className="flex gap-2 flex-wrap">
                   {listing.furnished && <Badge className="bg-[#B8E986] text-[#34495E] border-0">Furnished</Badge>}
                   {listing.wifiAvailable && <Badge className="bg-[#00A5A7] text-white border-0">WiFi</Badge>}
-                  {listing.genderPreference !== 0 && <Badge variant="outline">{GENDER_LABELS[listing.genderPreference]}</Badge>}
+                  {listing.genderPreference !== 0 && (
+                    <Badge variant="outline">{GENDER_LABELS[listing.genderPreference]}</Badge>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 text-[#717182] mb-2">
                 <MapPin className="w-5 h-5" />
                 <span>
-                  {listing.canViewContact && listing.exactAddress
+                  {showContact && listing.exactAddress
                     ? `${listing.exactAddress}, ${listing.city}`
                     : `${listing.address}, ${listing.city}`}
                 </span>
               </div>
               {landlordName && (
-                <p className="text-[#717182] text-sm">Listed by <span className="text-[#00A5A7]">{landlordName}</span></p>
+                <p className="text-[#717182] text-sm">
+                  Listed by <span className="text-[#00A5A7]">{landlordName}</span>
+                </p>
               )}
             </div>
 
+            {/* Quick info */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
-                    { icon: <Home className="w-6 h-6 text-[#00A5A7] mb-2" />, label: `${listing.numberOfRooms} Rooms` },
-                    { icon: <Bed className="w-6 h-6 text-[#00A5A7] mb-2" />, label: `${availableBeds.length} Available Beds` },
-                    { icon: <Wifi className="w-6 h-6 text-[#00A5A7] mb-2" />, label: listing.wifiAvailable ? 'WiFi Yes' : 'No WiFi' },
+                    { icon: <Home className="w-6 h-6 text-[#00A5A7] mb-2" />,  label: `${listing.numberOfRooms} Rooms` },
+                    { icon: <Bed  className="w-6 h-6 text-[#00A5A7] mb-2" />,  label: `${availableBeds.length} Available Beds` },
+                    { icon: <Wifi className="w-6 h-6 text-[#00A5A7] mb-2" />,  label: listing.wifiAvailable ? 'WiFi Yes' : 'No WiFi' },
                     { icon: <Users className="w-6 h-6 text-[#00A5A7] mb-2" />, label: listing.genderPreference === 0 ? 'Any Gender' : GENDER_LABELS[listing.genderPreference] },
                   ].map(({ icon, label }) => (
                     <div key={label} className="flex flex-col items-center p-4 bg-[#00A5A7]/5 rounded-lg">
@@ -454,6 +445,7 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
 
+            {/* Description */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Description</h3>
@@ -461,6 +453,7 @@ export const HouseDetail = () => {
               </CardContent>
             </Card>
 
+            {/* Rooms & Beds */}
             <Card className="mb-8">
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Rooms & Beds</h3>
@@ -469,7 +462,9 @@ export const HouseDetail = () => {
                     <div key={room.id} className="border rounded-lg p-4">
                       <div className="flex justify-between items-center mb-3">
                         <h4 className="text-[#34495E]">Room {roomIndex + 1}</h4>
-                        <span className="text-[#FF6F61] font-semibold">EGP {room.pricePerBed.toLocaleString()}/bed/month</span>
+                        <span className="text-[#FF6F61] font-semibold">
+                          EGP {room.pricePerBed.toLocaleString()}/bed/month
+                        </span>
                       </div>
                       {room.roomImages.length > 0 && (
                         <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
@@ -479,8 +474,8 @@ export const HouseDetail = () => {
                               <img src={prefixImage(img)} alt={`Room ${roomIndex + 1} image ${i + 1}`}
                                 className="h-24 w-36 object-cover rounded transition-transform duration-150 group-hover:scale-[1.03]"
                                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                              <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 transition-colors duration-150 flex items-center justify-center">
-                                <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 drop-shadow" />
+                              <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 transition-colors flex items-center justify-center">
+                                <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
                               </div>
                             </div>
                           ))}
@@ -488,15 +483,18 @@ export const HouseDetail = () => {
                       )}
                       <div className="flex flex-wrap gap-2">
                         {room.beds.map(bed => (
-                          <button key={bed.id}
-                            onClick={() => !bed.isBooked && user?.type === 'student' && setSelectedBedId(bed.id)}
-                            disabled={bed.isBooked}
+                          <button
+                            key={bed.id}
+                            onClick={() => !bed.isBooked && user?.type === 'student' && !bookingDone && setSelectedBedId(bed.id)}
+                            disabled={bed.isBooked || bookingDone}
                             className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all
-                              ${bed.isBooked
+                              ${bed.isBooked || bookingDone
                                 ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
                                 : selectedBedId === bed.id
                                   ? 'bg-[#00A5A7] border-[#00A5A7] text-white'
-                                  : 'bg-white border-[#B8E986] text-[#34495E] hover:border-[#00A5A7] cursor-pointer'}`}>
+                                  : 'bg-white border-[#B8E986] text-[#34495E] hover:border-[#00A5A7] cursor-pointer'
+                              }`}
+                          >
                             <Bed className="w-4 h-4 inline mr-1" />
                             Bed {bed.bedNumber ?? bed.id} {bed.isBooked ? '(Booked)' : '(Available)'}
                           </button>
@@ -509,12 +507,13 @@ export const HouseDetail = () => {
             </Card>
           </div>
 
-          {/* Sidebar */}
+          {/* ── Sidebar ── */}
           <div className="lg:col-span-1">
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
 
-                {listing.canViewContact ? (
+                {/* ── Contact info — shown after booking or if already unlocked ── */}
+                {showContact ? (
                   <div className="space-y-3">
                     <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
                     {listing.landlordPhoneNumber && (
@@ -535,45 +534,68 @@ export const HouseDetail = () => {
                         <span className="text-[#34495E]">Street: {listing.street}</span>
                       </div>
                     )}
+                    {bookingDone && (
+                      <div className="p-3 bg-[#B8E986]/20 border border-[#B8E986]/40 rounded-lg text-sm text-[#34495E]">
+                        ✓ Booking confirmed! You can now contact the landlord.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg text-sm text-[#717182]">
-                    Complete a booking and payment to unlock landlord contact and exact address.
+                    Complete a booking to unlock landlord contact and exact address.
                   </div>
                 )}
 
-                {user?.type === 'student' && (
+                {/* ── Booking form — students only, hidden once booked ── */}
+                {user?.type === 'student' && !bookingDone && (
                   <div className="space-y-3 border-t pt-4">
                     <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
+
                     {selectedBedId && (
                       <div className="p-2 bg-[#00A5A7]/10 rounded text-sm text-[#00A5A7]">
                         Selected: Bed #{selectedBedId}
                         {selectedBedPrice && ` — EGP ${selectedBedPrice.toLocaleString()}/month`}
                       </div>
                     )}
+
                     <div className="space-y-2">
-                      <Label>Start Date</Label>
-                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                        min={new Date().toISOString().split('T')[0]} />
+                      <Label>Duration (months)</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="24"
+                        value={durationMonths === '' ? '' : durationMonths}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setDurationMonths(val === '' ? '' : parseInt(val) || 1);
+                        }}
+                        onBlur={() => {
+                          if (!durationMonths || Number(durationMonths) < 1) setDurationMonths(1);
+                        }}
+                        placeholder="e.g. 6"
+                      />
+                      {durationMonths && selectedBedPrice && Number(durationMonths) >= 1 && (
+                        <p className="text-xs text-[#717182]">
+                          Total: EGP {(selectedBedPrice * Number(durationMonths)).toLocaleString()}
+                        </p>
+                      )}
                     </div>
-                    <div className="space-y-2">
-                      <Label>End Date</Label>
-                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                        min={startDate || new Date().toISOString().split('T')[0]} />
-                    </div>
+
                     <Button
                       onClick={handleBooking}
-                      disabled={bookingLoading || !selectedBedId || !startDate || !endDate}
+                      disabled={bookingLoading || !selectedBedId || !durationMonths || Number(durationMonths) < 1}
                       className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white h-12"
                     >
-                      {bookingLoading ? 'Creating Booking...' : 'Book & Pay'}
+                      {bookingLoading ? 'Creating Booking...' : 'Book Now'}
                     </Button>
+
                     {!selectedBedId && (
                       <p className="text-[#717182] text-xs text-center">Select an available bed above to book</p>
                     )}
                   </div>
                 )}
 
+                {/* ── Property Details ── */}
                 <div className="border-t pt-4">
                   <h4 className="text-[#34495E] mb-3 font-medium">Property Details</h4>
                   <div className="space-y-2 text-sm text-[#717182]">
@@ -592,6 +614,7 @@ export const HouseDetail = () => {
                     </div>
                   </div>
 
+                  {/* Report listing button — students only */}
                   {user?.type === 'student' && (
                     <div className="mt-4 pt-4 border-t">
                       <ReportModal
@@ -608,33 +631,54 @@ export const HouseDetail = () => {
                     </div>
                   )}
 
-                  {isOwnListing && bookings.length > 0 && (
-                    <div className="mt-4 pt-4 border-t space-y-3">
-                      <h4 className="text-[#34495E] font-medium text-sm">Students in this listing</h4>
-                      {bookings.map((booking) => (
-                        <div key={booking.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="text-[#34495E] text-sm font-medium">{booking.studentName || `Student #${booking.studentId}`}</p>
-                            <p className="text-[#717182] text-xs">Bed #{booking.bedId}</p>
-                          </div>
-                          <ReportModal
-                            trigger={
-                              <Button variant="ghost" size="sm" className="text-[#FF6F61] hover:bg-[#FF6F61]/10">
-                                <Flag className="w-4 h-4" />
-                              </Button>
-                            }
-                            title={`Report ${booking.studentName || 'Student'}`}
-                            description="Describe the issue with this student. Our team will review your report."
-                            onSubmit={(reason) => handleReportStudent(reason, String(booking.studentId))}
-                          />
+                  {/* ── Landlord: students who booked beds in this listing ── */}
+                  {isOwnListing && (
+                    <div className="mt-4 pt-4 border-t">
+                      <h4 className="text-[#34495E] font-medium text-sm mb-3">
+                        Booked Students
+                        {bookedStudents.length > 0 && (
+                          <span className="text-[#717182] font-normal ml-1">({bookedStudents.length})</span>
+                        )}
+                      </h4>
+
+                      {bookedStudents.length === 0 ? (
+                        <p className="text-[#717182] text-xs">No students have booked in this listing yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {bookedStudents.map((booking) => (
+                            <div key={booking.id}
+                              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                              <div>
+                                <p className="text-[#34495E] text-sm font-medium">
+                                  {booking.studentName || `Student #${booking.studentId}`}
+                                </p>
+                                <p className="text-[#717182] text-xs">
+                                  Bed #{booking.bedId} · {booking.startDate} → {booking.endDate}
+                                </p>
+                              </div>
+                              <ReportModal
+                                trigger={
+                                  <Button variant="ghost" size="sm"
+                                    className="text-[#FF6F61] hover:bg-[#FF6F61]/10 flex-shrink-0"
+                                    title={`Report ${booking.studentName || 'student'}`}>
+                                    <Flag className="w-4 h-4" />
+                                  </Button>
+                                }
+                                title={`Report ${booking.studentName || 'Student'}`}
+                                description="Describe the issue with this student. Our team will review your report."
+                                onSubmit={(reason) => handleReportStudent(reason, booking.studentId)}
+                              />
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
                   )}
                 </div>
               </CardContent>
             </Card>
           </div>
+
         </div>
       </div>
     </div>
