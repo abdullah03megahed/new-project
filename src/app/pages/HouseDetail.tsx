@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '../components/ui/carousel';
 import { toast } from 'sonner';
+import { PaymentModal } from '../components/PaymentModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ interface Listing {
   exactAddress: string | null;
 }
 
-const IMAGE_BASE   = 'https://unimate.runasp.net/';
+const IMAGE_BASE = 'https://unimate.runasp.net/';
 const GENDER_LABELS: Record<number, string> = { 1: 'Male Only', 2: 'Female Only' };
 
 const prefixImage = (img: string) => {
@@ -104,12 +105,9 @@ const ReportModal = ({ trigger, title, description, onSubmit }: ReportModalProps
           <div className="space-y-2">
             <Label htmlFor="reason" className="text-[#34495E]">Reason</Label>
             <Textarea
-              id="reason"
-              value={reason}
+              id="reason" value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Describe the issue..."
-              rows={4}
-              required
+              placeholder="Describe the issue..." rows={4} required
               className="border-[#00A5A7]/20 focus:border-[#00A5A7] resize-none"
               maxLength={500}
             />
@@ -197,16 +195,23 @@ const Lightbox = ({ images, initialIndex, onClose }: LightboxProps) => {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const HouseDetail = () => {
-  const { id }    = useParams();
-  const navigate  = useNavigate();
-  const { user }  = useAuth();
+  const { id }   = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [listing, setListing]               = useState<Listing | null>(null);
   const [loading, setLoading]               = useState(true);
   const [selectedBedId, setSelectedBedId]   = useState<number | null>(null);
-  const [durationMonths, setDurationMonths] = useState<number | ''>(1); // ← new field
+  const [durationMonths, setDurationMonths] = useState<number | ''>(1);
   const [bookingLoading, setBookingLoading] = useState(false);
-  const [bookingDone, setBookingDone]       = useState(false); // ← track if just booked
+
+  // Payment modal state
+  const [paymentOpen, setPaymentOpen]       = useState(false);
+  const [pendingBookingId, setPendingBookingId] = useState<number | null>(null);
+  const [pendingAmount, setPendingAmount]   = useState<number | undefined>(undefined);
+
+  // Only true after payment succeeds — gates contact visibility
+  const [paymentDone, setPaymentDone]       = useState(false);
 
   // Landlord: students who booked beds in this listing
   const [bookedStudents, setBookedStudents] = useState<BookingInfo[]>([]);
@@ -230,17 +235,15 @@ export const HouseDetail = () => {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Landlord: fetch all bookings on this listing so they can see & report students
+  // Landlord: fetch booked students for this listing
   useEffect(() => {
     if (!user || user.type !== 'landlord' || !id || !user.id) return;
-
     api.get<any>(`/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=100`)
       .then(async data => {
         const listingBookings = (data.data || []).filter(
           (b: any) => String(b.listingId) === String(id)
         );
         if (!listingBookings.length) return;
-
         const detailed = await Promise.all(
           listingBookings.map((b: any) =>
             api.get<BookingInfo>(`/Booking/GetBooking/${b.id}`).catch(() => null)
@@ -251,10 +254,7 @@ export const HouseDetail = () => {
       .catch(() => { /* silently fail */ });
   }, [user, id]);
 
-  // ─── Create Booking ───────────────────────────────────────────────────────
-  // New API: POST /api/Booking/CreateBooking  { bedId, durationInMonths }
-  // No dates — backend calculates them from duration.
-
+  // ─── Step 1: Create booking → open payment modal ──────────────────────────
   const handleBooking = async () => {
     if (!selectedBedId) {
       toast.error('Please select a bed.');
@@ -266,24 +266,50 @@ export const HouseDetail = () => {
     }
     setBookingLoading(true);
     try {
-      await api.post('/Booking/CreateBooking', {
+      // POST /api/Booking/CreateBooking → returns booking ID or object with id
+      const res = await api.post<any>('/Booking/CreateBooking', {
         bedId: selectedBedId,
         durationInMonths: Number(durationMonths),
       });
 
-      toast.success('Booking created! Contact details are now unlocked.');
+      // Backend may return a plain number, { id }, or { bookingId }
+      const bookingId =
+        typeof res === 'number'
+          ? res
+          : res?.id ?? res?.bookingId ?? null;
 
-      // Refresh listing — backend now returns canViewContact: true
-      const updated = await api.get<Listing>(`/Listing/${id}`);
-      setListing(updated);
-      setSelectedBedId(null);
-      setDurationMonths(1);
-      setBookingDone(true); // ← hide booking form, show contact
+      if (!bookingId) {
+        toast.error('Booking created but no ID returned. Please contact support.');
+        return;
+      }
+
+      // Store booking ID and open payment modal
+      setPendingBookingId(bookingId);
+      setPendingAmount(
+        listing?.rooms
+          .flatMap(r => r.beds.map(b => ({ id: b.id, price: r.pricePerBed })))
+          .find(b => b.id === selectedBedId)?.price
+      );
+      setPaymentOpen(true);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Booking failed.');
     } finally {
       setBookingLoading(false);
     }
+  };
+
+  // ─── Step 2: Payment success → refresh listing, show contact ─────────────
+  const handlePaymentSuccess = async () => {
+    setPaymentDone(true);
+    setPendingBookingId(null);
+    setSelectedBedId(null);
+    setDurationMonths(1);
+    // Refresh to get updated canViewContact, landlordPhoneNumber, exactAddress
+    try {
+      const updated = await api.get<Listing>(`/Listing/${id}`);
+      setListing(updated);
+    } catch { /* ignore */ }
+    toast.success('Payment successful! Landlord contact is now unlocked.');
   };
 
   const handleReportListing = async (reason: string) => {
@@ -294,7 +320,6 @@ export const HouseDetail = () => {
 
   const handleReportStudent = async (reason: string, studentId: number) => {
     if (!listing) return;
-    // Use student numeric id as string — backend accepts string for reportedId
     await api.post('/Report/CreateReport', {
       reason,
       reportedId: String(studentId),
@@ -327,25 +352,40 @@ export const HouseDetail = () => {
     ...listing.listingImages,
     ...listing.rooms.flatMap(r => r.roomImages),
   ];
-
   const availableBeds = listing.rooms.flatMap(room =>
     room.beds.filter(b => !b.isBooked).map(b => ({ ...b, pricePerBed: room.pricePerBed }))
   );
-
   const selectedBedPrice = listing.rooms
     .flatMap(r => r.beds.map(b => ({ ...b, price: r.pricePerBed })))
     .find(b => b.id === selectedBedId)?.price;
 
-  const landlordName  = getLandlordName(listing);
-  const isOwnListing  = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
-  // Show contact if already unlocked OR just completed booking
-  const showContact   = listing.canViewContact || bookingDone;
+  const landlordName = getLandlordName(listing);
+  const isOwnListing = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
+
+  // Contact is visible only if backend says so OR user just paid
+  const showContact = listing.canViewContact || paymentDone;
+
+  // Hide booking form once payment is done
+  const bookingComplete = paymentDone || listing.canViewContact;
 
   return (
     <div className="min-h-screen bg-white">
 
       {lightboxOpen && (
         <Lightbox images={lightboxImages} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />
+      )}
+
+      {/* Payment modal — opens after booking is created */}
+      {pendingBookingId !== null && (
+        <PaymentModal
+          open={paymentOpen}
+          onClose={() => setPaymentOpen(false)}
+          onSuccess={handlePaymentSuccess}
+          type="booking"
+          resourceId={pendingBookingId}
+          label={`Booking for ${listing.title}`}
+          amount={pendingAmount}
+        />
       )}
 
       {/* Back nav */}
@@ -370,16 +410,11 @@ export const HouseDetail = () => {
                   <CarouselContent>
                     {allImages.map((image, index) => (
                       <CarouselItem key={index}>
-                        <div
-                          className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer"
-                          onClick={() => openLightbox(allImages, index)}
-                        >
-                          <img
-                            src={prefixImage(image)}
-                            alt={`${listing.title} - Image ${index + 1}`}
+                        <div className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer"
+                          onClick={() => openLightbox(allImages, index)}>
+                          <img src={prefixImage(image)} alt={`${listing.title} - Image ${index + 1}`}
                             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                          />
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 flex items-center justify-center">
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/50 rounded-full p-3">
                               <ZoomIn className="w-6 h-6 text-white" />
@@ -414,6 +449,7 @@ export const HouseDetail = () => {
               </div>
               <div className="flex items-center gap-2 text-[#717182] mb-2">
                 <MapPin className="w-5 h-5" />
+                {/* Show exact address only after payment */}
                 <span>
                   {showContact && listing.exactAddress
                     ? `${listing.exactAddress}, ${listing.city}`
@@ -472,9 +508,9 @@ export const HouseDetail = () => {
                             <div key={i} className="relative flex-shrink-0 group cursor-pointer"
                               onClick={() => openLightbox(room.roomImages, i)}>
                               <img src={prefixImage(img)} alt={`Room ${roomIndex + 1} image ${i + 1}`}
-                                className="h-24 w-36 object-cover rounded transition-transform duration-150 group-hover:scale-[1.03]"
+                                className="h-24 w-36 object-cover rounded transition-transform group-hover:scale-[1.03]"
                                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                              <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 transition-colors flex items-center justify-center">
+                              <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 flex items-center justify-center">
                                 <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
                               </div>
                             </div>
@@ -485,10 +521,13 @@ export const HouseDetail = () => {
                         {room.beds.map(bed => (
                           <button
                             key={bed.id}
-                            onClick={() => !bed.isBooked && user?.type === 'student' && !bookingDone && setSelectedBedId(bed.id)}
-                            disabled={bed.isBooked || bookingDone}
+                            onClick={() => {
+                              if (!bed.isBooked && user?.type === 'student' && !bookingComplete)
+                                setSelectedBedId(bed.id);
+                            }}
+                            disabled={bed.isBooked || bookingComplete}
                             className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all
-                              ${bed.isBooked || bookingDone
+                              ${bed.isBooked || bookingComplete
                                 ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
                                 : selectedBedId === bed.id
                                   ? 'bg-[#00A5A7] border-[#00A5A7] text-white'
@@ -512,7 +551,7 @@ export const HouseDetail = () => {
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
 
-                {/* ── Contact info — shown after booking or if already unlocked ── */}
+                {/* Contact — only after payment succeeds */}
                 {showContact ? (
                   <div className="space-y-3">
                     <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
@@ -534,20 +573,15 @@ export const HouseDetail = () => {
                         <span className="text-[#34495E]">Street: {listing.street}</span>
                       </div>
                     )}
-                    {bookingDone && (
-                      <div className="p-3 bg-[#B8E986]/20 border border-[#B8E986]/40 rounded-lg text-sm text-[#34495E]">
-                        ✓ Booking confirmed! You can now contact the landlord.
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div className="p-3 bg-[#FFC759]/10 border border-[#FFC759]/30 rounded-lg text-sm text-[#717182]">
-                    Complete a booking to unlock landlord contact and exact address.
+                    Book a bed and complete payment to unlock the landlord's contact details and exact address.
                   </div>
                 )}
 
-                {/* ── Booking form — students only, hidden once booked ── */}
-                {user?.type === 'student' && !bookingDone && (
+                {/* Booking form — students only, hidden after payment */}
+                {user?.type === 'student' && !bookingComplete && (
                   <div className="space-y-3 border-t pt-4">
                     <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
 
@@ -561,9 +595,7 @@ export const HouseDetail = () => {
                     <div className="space-y-2">
                       <Label>Duration (months)</Label>
                       <Input
-                        type="number"
-                        min="1"
-                        max="24"
+                        type="number" min="1" max="24"
                         value={durationMonths === '' ? '' : durationMonths}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -574,7 +606,7 @@ export const HouseDetail = () => {
                         }}
                         placeholder="e.g. 6"
                       />
-                      {durationMonths && selectedBedPrice && Number(durationMonths) >= 1 && (
+                      {selectedBedPrice && durationMonths && Number(durationMonths) >= 1 && (
                         <p className="text-xs text-[#717182]">
                           Total: EGP {(selectedBedPrice * Number(durationMonths)).toLocaleString()}
                         </p>
@@ -586,16 +618,18 @@ export const HouseDetail = () => {
                       disabled={bookingLoading || !selectedBedId || !durationMonths || Number(durationMonths) < 1}
                       className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white h-12"
                     >
-                      {bookingLoading ? 'Creating Booking...' : 'Book Now'}
+                      {bookingLoading ? 'Creating Booking...' : 'Book Now & Pay'}
                     </Button>
 
                     {!selectedBedId && (
-                      <p className="text-[#717182] text-xs text-center">Select an available bed above to book</p>
+                      <p className="text-[#717182] text-xs text-center">
+                        Select an available bed above to book
+                      </p>
                     )}
                   </div>
                 )}
 
-                {/* ── Property Details ── */}
+                {/* Property Details */}
                 <div className="border-t pt-4">
                   <h4 className="text-[#34495E] mb-3 font-medium">Property Details</h4>
                   <div className="space-y-2 text-sm text-[#717182]">
@@ -614,7 +648,7 @@ export const HouseDetail = () => {
                     </div>
                   </div>
 
-                  {/* Report listing button — students only */}
+                  {/* Report listing — students only */}
                   {user?.type === 'student' && (
                     <div className="mt-4 pt-4 border-t">
                       <ReportModal
@@ -631,7 +665,7 @@ export const HouseDetail = () => {
                     </div>
                   )}
 
-                  {/* ── Landlord: students who booked beds in this listing ── */}
+                  {/* Landlord: booked students list with report buttons */}
                   {isOwnListing && (
                     <div className="mt-4 pt-4 border-t">
                       <h4 className="text-[#34495E] font-medium text-sm mb-3">
@@ -640,7 +674,6 @@ export const HouseDetail = () => {
                           <span className="text-[#717182] font-normal ml-1">({bookedStudents.length})</span>
                         )}
                       </h4>
-
                       {bookedStudents.length === 0 ? (
                         <p className="text-[#717182] text-xs">No students have booked in this listing yet.</p>
                       ) : (
