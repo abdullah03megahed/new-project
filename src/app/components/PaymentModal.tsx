@@ -7,7 +7,6 @@ import { toast } from 'sonner';
 import { api } from '../utils/api';
 
 // ─── Put your Stripe publishable key here ─────────────────────────────────────
-const STRIPE_PK = 'pk_test_YOUR_PUBLISHABLE_KEY';
 const STRIPE_PK = 'pk_test_51TLXDnBkXtPmcfWHOvgqWvSvuC2gMh7SpYHVkodNk6shqiNU7Fs62xv31KrDMJBg26ELMPLvcXSYRgv6cNQwnPSP00OmgxDNDS';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -215,4 +214,3 @@ export const PaymentModal = ({
     </Dialog>
   );
 };
-
