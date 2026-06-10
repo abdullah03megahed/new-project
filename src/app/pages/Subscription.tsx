@@ -112,7 +112,7 @@ export const Subscription = () => {
     setSubscribing(plan.id);
     try {
       // Use api.post with null body — backend expects no body
-      const subscriptionId = await api.post<number>(`/Subscription/${plan.id}`, null as any);
+      const subscriptionId = await api.post<number>(`/Subscription/${plan.name}`, null as any);
 
       if (!subscriptionId) {
         toast.error('Subscription created but no ID returned. Please contact support.');
