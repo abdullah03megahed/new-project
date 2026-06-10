@@ -30,7 +30,7 @@ interface LandlordProfile {
 }
 
 interface Report {
-  reporterId: string; reportedId: string; reason: string;
+  id?: number; reporterId: string; reportedId: string; reason: string;
   status: number; type: number; createdAt: string;
 }
 
@@ -41,21 +41,15 @@ interface PaginatedReports {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const reportStatusLabel = (s: number) => {
-  if (s === 1) return { label: 'Pending', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
-  if (s === 2) return { label: 'Resolved', color: 'bg-green-100 text-green-700 border-green-200' };
+  if (s === 1) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  if (s === 2) return { label: 'Resolved',  color: 'bg-green-100 text-green-700 border-green-200' };
   if (s === 3) return { label: 'Dismissed', color: 'bg-gray-100 text-gray-500 border-gray-200' };
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
 const genderLabel = (g: number) => (g === 1 ? 'Male' : g === 2 ? 'Female' : '—');
-const sleepLabel = (s: number) => {
-  if (s === 1) return '🌅 Early Bird';
-  if (s === 2) return '🌙 Night Owl';
-  if (s === 3) return '⚡ Flexible';
-  return '—';
-};
-const initials = (first?: string, last?: string) =>
-  `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || '?';
+const sleepLabel  = (s: number) => s === 1 ? '🌅 Early Bird' : s === 2 ? '🌙 Night Owl' : s === 3 ? '⚡ Flexible' : '—';
+const initials    = (first?: string, last?: string) => `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || '?';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -73,54 +67,64 @@ export const Profile = () => {
   const [studentForm, setStudentForm] = useState<StudentProfile | null>(null);
   const [landlordForm, setLandlordForm] = useState<LandlordProfile | null>(null);
 
-  // Reports
-  const [reports, setReports] = useState<Report[]>([]);
+  const [reports, setReports]             = useState<Report[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [reportsCount, setReportsCount] = useState(0);
+  const [reportsCount, setReportsCount]   = useState(0);
 
   // ─── Fetch profile ────────────────────────────────────────────────────────
-
   useEffect(() => {
     if (!user) return;
+
     const fetchProfile = async () => {
       try {
-        if (user.type === 'student' && user.id) {
-          const data = await api.get<StudentProfile>(`/Student/${user.id}`);
+        if (user.type === 'student') {
+          let data: StudentProfile;
+
+          // BUG FIX: user.id may be '' if user logged in before AuthContext was updated.
+          // Fall back to email-based lookup which always works.
+          if (user.id) {
+            data = await api.get<StudentProfile>(`/Student/${user.id}`);
+          } else {
+            data = await api.get<StudentProfile>(`/Student/Email?email=${encodeURIComponent(user.email)}`);
+            // Patch user object so future calls use the real id
+            if (data?.id) updateUser({ id: String(data.id) });
+          }
+
           setStudentData(data);
           setStudentForm(data);
-        } else if (user.type === 'landlord' && user.id) {
-          const data = await api.get<LandlordProfile>(`/LandLord/${user.id}`);
+
+        } else if (user.type === 'landlord') {
+          let data: LandlordProfile;
+
+          if (user.id) {
+            data = await api.get<LandlordProfile>(`/LandLord/${user.id}`);
+          } else {
+            data = await api.get<LandlordProfile>(`/LandLord/Email?email=${encodeURIComponent(user.email)}`);
+            if (data?.id) updateUser({ id: String(data.id) });
+          }
+
           setLandlordData(data);
           setLandlordForm(data);
         }
-      } catch {
+      } catch (err) {
+        console.error('[Profile] Failed to load profile:', err);
         toast.error('Failed to load profile data.');
       } finally {
         setLoading(false);
       }
     };
+
     fetchProfile();
-  }, [user]);
+  }, [user?.id, user?.email, user?.type]);
 
-  // ─── Fetch reports when tab opens ─────────────────────────────────────────
-
+  // ─── Fetch reports ────────────────────────────────────────────────────────
   useEffect(() => {
     if (activeTab !== 'reports' || !user) return;
     setReportsLoading(true);
-    const fetchReports = async () => {
-      try {
-        const data = await api.get<PaginatedReports>(
-          '/Report/GetUserReports?SortingOption=2&PageIndex=1&PageSize=20'
-        );
-        setReports(data.data || []);
-        setReportsCount(data.count || 0);
-      } catch {
-        toast.error('Failed to load reports.');
-      } finally {
-        setReportsLoading(false);
-      }
-    };
-    fetchReports();
+    api.get<PaginatedReports>('/Report/GetUserReports?SortingOption=2&PageIndex=1&PageSize=20')
+      .then(data => { setReports(data.data || []); setReportsCount(data.count || 0); })
+      .catch(() => toast.error('Failed to load reports.'))
+      .finally(() => setReportsLoading(false));
   }, [activeTab, user]);
 
   if (!user) {
@@ -139,22 +143,23 @@ export const Profile = () => {
     );
   }
 
-  // ─── Save ──────────────────────────────────────────────────────────────────
-
+  // ─── Save ─────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
     try {
-      if (user.type === 'student' && studentForm && user.id) {
-        const updated = await api.put<StudentProfile>(`/Student/${user.id}`, { ...studentForm, id: Number(user.id) });
+      if (user.type === 'student' && studentForm) {
+        const id = studentForm.id || Number(user.id);
+        const updated = await api.put<StudentProfile>(`/Student/${id}`, { ...studentForm, id });
         setStudentData(updated);
         setStudentForm(updated);
-        updateUser({ ...user, displayName: `${updated.firstName} ${updated.lastName}` });
+        updateUser({ displayName: `${updated.firstName} ${updated.lastName}`, id: String(updated.id) });
         toast.success('Profile updated successfully!');
-      } else if (user.type === 'landlord' && landlordForm && user.id) {
-        const updated = await api.put<LandlordProfile>(`/LandLord/${user.id}`, { ...landlordForm, id: Number(user.id) });
+      } else if (user.type === 'landlord' && landlordForm) {
+        const id = landlordForm.id || Number(user.id);
+        const updated = await api.put<LandlordProfile>(`/LandLord/${id}`, { ...landlordForm, id });
         setLandlordData(updated);
         setLandlordForm(updated);
-        updateUser({ ...user, displayName: `${updated.firstName} ${updated.lastName}` });
+        updateUser({ displayName: `${updated.firstName} ${updated.lastName}`, id: String(updated.id) });
         toast.success('Profile updated successfully!');
       }
       setIsEditing(false);
@@ -171,47 +176,34 @@ export const Profile = () => {
     setIsEditing(false);
   };
 
-  // ─── Render ────────────────────────────────────────────────────────────────
-
   const displayName = user.type === 'student'
     ? `${studentData?.firstName ?? ''} ${studentData?.lastName ?? ''}`
     : `${landlordData?.firstName ?? ''} ${landlordData?.lastName ?? ''}`;
 
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#B19CD9]/5 py-8">
       <div className="container mx-auto px-4 max-w-4xl">
 
-        {/* ── Tabs ── */}
+        {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-gray-200">
-          <button
-            onClick={() => setActiveTab('profile')}
+          <button onClick={() => setActiveTab('profile')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'profile'
-                ? 'border-[#00A5A7] text-[#00A5A7]'
-                : 'border-transparent text-[#717182] hover:text-[#34495E]'
-            }`}
-          >
+              activeTab === 'profile' ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
             My Profile
           </button>
-          <button
-            onClick={() => setActiveTab('reports')}
+          <button onClick={() => setActiveTab('reports')}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'reports'
-                ? 'border-[#00A5A7] text-[#00A5A7]'
-                : 'border-transparent text-[#717182] hover:text-[#34495E]'
-            }`}
-          >
+              activeTab === 'reports' ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
             <Flag className="w-4 h-4" />
             My Reports
             {reportsCount > 0 && (
-              <span className="bg-[#FF6F61] text-white text-xs px-1.5 py-0.5 rounded-full">
-                {reportsCount}
-              </span>
+              <span className="bg-[#FF6F61] text-white text-xs px-1.5 py-0.5 rounded-full">{reportsCount}</span>
             )}
           </button>
         </div>
 
-        {/* ══════════════════ PROFILE TAB ══════════════════ */}
+        {/* ══ PROFILE TAB ══ */}
         {activeTab === 'profile' && (
           <>
             <Card>
@@ -268,12 +260,10 @@ export const Profile = () => {
                           disabled={!isEditing} />
                       </div>
                     </div>
-
                     <div className="space-y-2">
                       <Label>Email</Label>
                       <Input value={studentForm.email} disabled />
                     </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Phone Number</Label>
@@ -297,7 +287,6 @@ export const Profile = () => {
                         )}
                       </div>
                     </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Date of Birth</Label>
@@ -313,22 +302,18 @@ export const Profile = () => {
                           disabled={!isEditing} />
                       </div>
                     </div>
-
                     <div className="space-y-2">
                       <Label>Faculty / Field</Label>
                       <Input value={studentForm.facultyField}
                         onChange={(e) => setStudentForm({ ...studentForm, facultyField: e.target.value })}
                         disabled={!isEditing} />
                     </div>
-
                     <div className="space-y-2">
                       <Label>Bio</Label>
                       <Input value={studentForm.bio}
                         onChange={(e) => setStudentForm({ ...studentForm, bio: e.target.value })}
-                        disabled={!isEditing}
-                        placeholder="Tell others a bit about yourself..." />
+                        disabled={!isEditing} placeholder="Tell others about yourself..." />
                     </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Min Budget (EGP/month)</Label>
@@ -343,7 +328,6 @@ export const Profile = () => {
                           disabled={!isEditing} />
                       </div>
                     </div>
-
                     <div className="space-y-2">
                       <Label>Sleeping Habits</Label>
                       {isEditing ? (
@@ -360,7 +344,6 @@ export const Profile = () => {
                         <Input value={sleepLabel(studentForm.sleepingHabits)} disabled />
                       )}
                     </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>National Card ID</Label>
@@ -371,15 +354,11 @@ export const Profile = () => {
                         <Input value={studentForm.universityCard} disabled />
                       </div>
                     </div>
-
                     <div className="flex items-center space-x-2">
                       <Checkbox id="lookingForRoommate" checked={studentForm.lookingForRoommate}
-                        onCheckedChange={(checked) =>
-                          setStudentForm({ ...studentForm, lookingForRoommate: checked === true })}
+                        onCheckedChange={(c) => setStudentForm({ ...studentForm, lookingForRoommate: c === true })}
                         disabled={!isEditing} />
-                      <Label htmlFor="lookingForRoommate" className="cursor-pointer">
-                        Looking for a roommate
-                      </Label>
+                      <Label htmlFor="lookingForRoommate" className="cursor-pointer">Looking for a roommate</Label>
                     </div>
                   </>
                 )}
@@ -401,19 +380,16 @@ export const Profile = () => {
                           disabled={!isEditing} />
                       </div>
                     </div>
-
                     <div className="space-y-2">
                       <Label>Email</Label>
                       <Input value={landlordForm.email} disabled />
                     </div>
-
                     <div className="space-y-2">
                       <Label>Phone Number</Label>
                       <Input value={landlordForm.phoneNumber}
                         onChange={(e) => setLandlordForm({ ...landlordForm, phoneNumber: e.target.value })}
                         disabled={!isEditing} />
                     </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Date of Birth</Label>
@@ -429,7 +405,6 @@ export const Profile = () => {
                           disabled={!isEditing} />
                       </div>
                     </div>
-
                     <div className="space-y-2">
                       <Label>National ID</Label>
                       <Input value={landlordForm.nationalId} disabled />
@@ -439,7 +414,7 @@ export const Profile = () => {
               </CardContent>
             </Card>
 
-            {/* ── Matching Preferences — Students Only ── */}
+            {/* Matching Preferences — students only */}
             {user.type === 'student' && studentData && (
               <Card className="mt-6">
                 <CardHeader>
@@ -451,9 +426,7 @@ export const Profile = () => {
                 <CardContent>
                   {!studentData.homeTown && !studentData.minBudget && !studentData.sleepingHabits ? (
                     <div className="text-center py-8">
-                      <p className="text-[#717182] mb-4">
-                        Complete your matching preferences to find the perfect roommate
-                      </p>
+                      <p className="text-[#717182] mb-4">Complete your matching preferences to find the perfect roommate</p>
                       <Button onClick={() => navigate('/matching')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
                         Complete Matching Form
                       </Button>
@@ -515,17 +488,6 @@ export const Profile = () => {
                         </div>
                         <p className="text-[#34495E] pl-1">{studentData.lookingForRoommate ? 'Yes' : 'No'}</p>
                       </div>
-                      {studentData.age > 0 && (
-                        <div className="bg-[#B19CD9]/5 rounded-lg p-4 border border-[#B19CD9]/20">
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className="w-9 h-9 bg-[#00A5A7]/10 rounded-full flex items-center justify-center">
-                              <Users className="w-4 h-4 text-[#00A5A7]" />
-                            </div>
-                            <Label className="text-[#34495E]">Age</Label>
-                          </div>
-                          <p className="text-[#34495E] pl-1">{studentData.age} years old</p>
-                        </div>
-                      )}
                     </div>
                   )}
                 </CardContent>
@@ -534,7 +496,7 @@ export const Profile = () => {
           </>
         )}
 
-        {/* ══════════════════ REPORTS TAB ══════════════════ */}
+        {/* ══ REPORTS TAB ══ */}
         {activeTab === 'reports' && (
           <Card>
             <CardHeader>
@@ -548,11 +510,7 @@ export const Profile = () => {
             </CardHeader>
             <CardContent>
               {reportsLoading ? (
-                <div className="space-y-3">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="h-20 bg-gray-100 rounded-lg animate-pulse" />
-                  ))}
-                </div>
+                <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 bg-gray-100 rounded-lg animate-pulse" />)}</div>
               ) : reports.length === 0 ? (
                 <div className="text-center py-12">
                   <Flag className="w-12 h-12 text-[#717182] mx-auto mb-3" />
@@ -567,15 +525,11 @@ export const Profile = () => {
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <Badge className={`${color} border text-xs`}>{label}</Badge>
                           <span className="text-xs text-[#717182]">
-                            {new Date(report.createdAt).toLocaleDateString('en-GB', {
-                              day: '2-digit', month: 'short', year: 'numeric',
-                            })}
+                            {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </span>
                         </div>
                         <p className="text-sm text-[#34495E]">{report.reason}</p>
-                        <p className="text-xs text-[#717182]">
-                          Type: {report.type === 1 ? 'Listing Report' : 'User Report'}
-                        </p>
+                        <p className="text-xs text-[#717182]">Type: {report.type === 1 ? 'Listing Report' : 'User Report'}</p>
                       </div>
                     );
                   })}
