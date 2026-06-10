@@ -64,8 +64,8 @@ const prefixImage = (img: string) => {
 
 const statusInfo = (s: number) => {
   if (s === 1) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
-  if (s === 2) return { label: 2 ,  color: 'bg-green-100 text-green-700 border-green-200' };
-  if (s === 3) return { label: 3 , color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 2) return { label: 'Resolved' ,  color: 'bg-green-100 text-green-700 border-green-200' };
+  if (s === 3) return { label: 'Rejected' , color: 'bg-gray-100 text-gray-500 border-gray-200' };
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
 };
 
@@ -397,7 +397,7 @@ export const Admin = () => {
     }
     setUpdatingReportIdx(index);
     try {
-      await api.patch(`/Report/UpdateReport/${report.id}?Status=${newStatus}`, {});
+      await api.patch(`/Report/UpdateReport/${report.id}`, { status: newStatus });
       toast.success(newStatus === 2 ? 'Report resolved.' : 'Report rejected.');
       await fetchReports();
     } catch (err: unknown) {
