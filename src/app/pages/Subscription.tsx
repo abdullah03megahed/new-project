@@ -209,7 +209,7 @@ export const Subscription = () => {
                 variant="outline"
                 className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
               >
-                {renewing ? 'Processing...' : 'Renew Plan'}
+                {renewing ? 'Processing...' : 'Cancel Plan'}
               </Button>
             )}
           </div>
