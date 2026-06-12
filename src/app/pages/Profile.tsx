@@ -9,7 +9,11 @@ import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
 import { Badge } from '../components/ui/badge';
-import { Edit2, Save, X, Users, Moon, MapPin, GraduationCap, DollarSign, Flag, Bed, ShieldCheck } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import {
+  Edit2, Save, X, Users, Moon, MapPin, GraduationCap, DollarSign,
+  Flag, Bed, ShieldCheck, Home, Calendar, User, Building2,
+} from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -43,18 +47,34 @@ interface PaginatedReports {
   pageIndex: number; pageSize: number; count: number; data: Report[];
 }
 
-interface BookingDto {
+// Minimal booking from list endpoint
+interface BookingSummary {
   id: number;
-  studentId: number;
-  studentName?: string;
-  landlordId?: number;
-  listingId: number;
-  listingTitle?: string;
-  bedId: number;
   startDate: string;
   endDate: string;
-  status: number; // 1=Active, 2=Cancelled, 3=Completed
-  amount?: number;
+  listingId: number;
+  bedId: number;
+}
+
+interface PaginatedBookings {
+  pageIndex: number; pageSize: number; count: number; data: BookingSummary[];
+}
+
+// Full booking detail from GetBooking/{id}
+interface BookingDetail {
+  id: number;
+  startDate: string;
+  endDate: string;
+  status: number;
+  studentId: number;
+  bedId: number;
+  listingId: number;
+  landLordId: number;
+  studentName: string;
+  roomId: number;
+  landlordName: string;
+  amount: number;
+  type: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,9 +93,165 @@ const bookingStatusLabel = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
+const bookingTypeLabel = (t: number) => {
+  if (t === 1) return 'Single Bed';
+  if (t === 2) return 'Entire Room';
+  return '—';
+};
+
 const genderLabel = (g: number) => (g === 1 ? 'Male' : g === 2 ? 'Female' : '—');
 const sleepLabel  = (s: number) => s === 1 ? '🌅 Early Bird' : s === 2 ? '🌙 Night Owl' : s === 3 ? '⚡ Flexible' : '—';
 const initials    = (first?: string, last?: string) => `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || '?';
+
+const formatDate = (d: string) => {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+// ─── Booking Detail Dialog ────────────────────────────────────────────────────
+
+interface BookingDetailDialogProps {
+  bookingId: number;
+  open: boolean;
+  onClose: () => void;
+  onCancel: (id: number) => Promise<void>;
+  cancellingId: number | null;
+}
+
+const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId }: BookingDetailDialogProps) => {
+  const navigate = useNavigate();
+  const [detail, setDetail] = useState<BookingDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !bookingId) return;
+    setLoading(true);
+    api.get<BookingDetail>(`/Booking/GetBooking/${bookingId}`)
+      .then(data => setDetail(data))
+      .catch(() => toast.error('Failed to load booking details.'))
+      .finally(() => setLoading(false));
+  }, [open, bookingId]);
+
+  const { label, color } = detail ? bookingStatusLabel(detail.status) : { label: '', color: '' };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-[#34495E]">Booking Details</DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="space-y-3 py-4">
+            {[1, 2, 3, 4].map(i => <div key={i} className="h-8 bg-gray-100 rounded animate-pulse" />)}
+          </div>
+        ) : detail ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Badge className={`${color} border text-xs`}>{label}</Badge>
+              <span className="text-xs text-[#717182]">Booking #{detail.id}</span>
+            </div>
+
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <Building2 className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-[#717182]">Listing</p>
+                  <p className="text-[#34495E] font-medium">Listing #{detail.listingId}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <Bed className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-[#717182]">Bed / Room</p>
+                  <p className="text-[#34495E] font-medium">
+                    Bed #{detail.bedId} · {bookingTypeLabel(detail.type)}
+                  </p>
+                </div>
+              </div>
+
+              {detail.landlordName && (
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                  <User className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-[#717182]">Landlord</p>
+                    <p className="text-[#34495E] font-medium">{detail.landlordName}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <Calendar className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-[#717182]">Duration</p>
+                  <p className="text-[#34495E] font-medium">
+                    {formatDate(detail.startDate)} → {formatDate(detail.endDate)}
+                  </p>
+                </div>
+              </div>
+
+              {detail.amount > 0 && (
+                <div className="flex items-center gap-3 p-3 bg-[#FF6F61]/5 rounded-lg border border-[#FF6F61]/20">
+                  <DollarSign className="w-4 h-4 text-[#FF6F61] flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-[#717182]">Total Amount</p>
+                    <p className="text-[#FF6F61] font-semibold text-base">
+                      EGP {detail.amount.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="outline" size="sm"
+                onClick={() => { onClose(); navigate(`/house/${detail.listingId}`); }}
+                className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white flex-1"
+              >
+                View Listing
+              </Button>
+
+              {detail.status === 1 && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline" size="sm"
+                      disabled={cancellingId === detail.id}
+                      className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white flex-1"
+                    >
+                      {cancellingId === detail.id ? 'Cancelling...' : 'Cancel Booking'}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        You're about to cancel your booking for Listing #{detail.listingId} (Bed #{detail.bedId}). This cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={async () => { await onCancel(detail.id); onClose(); }}
+                        className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
+                      >
+                        Yes, Cancel
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="text-[#717182] text-sm text-center py-6">Failed to load booking details.</p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -98,19 +274,19 @@ export const Profile = () => {
   const [reportsCount, setReportsCount]     = useState(0);
 
   // ─── Bookings state ────────────────────────────────────────────────────────
-  const [bookings, setBookings]               = useState<BookingDto[]>([]);
+  const [bookings, setBookings]               = useState<BookingSummary[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
-  const [bookingsCount, setBookingsCount]     = useState(0);
+  const [activeBookingsCount, setActiveBookingsCount] = useState(0);
   const [cancellingId, setCancellingId]       = useState<number | null>(null);
 
-  // ─── Fetch profile (skip entirely for admin) ───────────────────────────────
+  // Booking detail dialog
+  const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
+  const [detailOpen, setDetailOpen]               = useState(false);
+
+  // ─── Fetch profile ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
-
-    if (user.type === 'admin') {
-      setLoading(false);
-      return;
-    }
+    if (user.type === 'admin') { setLoading(false); return; }
 
     const fetchProfile = async () => {
       try {
@@ -146,7 +322,7 @@ export const Profile = () => {
     fetchProfile();
   }, [user?.id, user?.email, user?.type]);
 
-  // ─── Fetch reports (students & landlords only) ─────────────────────────────
+  // ─── Fetch reports ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (activeTab !== 'reports' || !user || user.type === 'admin') return;
     setReportsLoading(true);
@@ -160,11 +336,13 @@ export const Profile = () => {
   useEffect(() => {
     if (activeTab !== 'bookings' || !user || user.type !== 'student' || !user.id) return;
     setBookingsLoading(true);
-    api.get<any>(`/Booking/GetStudentBookings/${user.id}`)
+    api.get<PaginatedBookings>(`/Booking/GetStudentBookings/${user.id}?PageIndex=1&PageSize=100`)
       .then(data => {
-        const list: BookingDto[] = Array.isArray(data) ? data : (data?.data || []);
+        const list: BookingSummary[] = data?.data || [];
         setBookings(list);
-        setBookingsCount(list.filter(b => b.status === 1).length);
+        // We don't have status in summary list, so count will be updated when details are fetched
+        // For the badge, we'll show total bookings count
+        setActiveBookingsCount(list.length);
       })
       .catch(() => toast.error('Failed to load your bookings.'))
       .finally(() => setBookingsLoading(false));
@@ -186,7 +364,7 @@ export const Profile = () => {
     );
   }
 
-  // ─── Admin: simple standalone view (no profile/reports/bookings tabs) ──────
+  // ─── Admin view ────────────────────────────────────────────────────────────
   if (user.type === 'admin') {
     return (
       <div className="min-h-screen bg-[#B19CD9]/5 py-8">
@@ -249,19 +427,25 @@ export const Profile = () => {
     setIsEditing(false);
   };
 
-  // ─── Cancel / Unbook booking ────────────────────────────────────────────────
+  // ─── Cancel booking ────────────────────────────────────────────────────────
   const handleCancelBooking = async (bookingId: number) => {
     setCancellingId(bookingId);
     try {
       await api.put(`/Booking/CancelBooking/${bookingId}`, {});
-      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: 2 } : b));
-      setBookingsCount(prev => Math.max(0, prev - 1));
+      // Remove cancelled booking from list or just refetch
+      setBookings(prev => prev.filter(b => b.id !== bookingId));
+      setActiveBookingsCount(prev => Math.max(0, prev - 1));
       toast.success('Booking cancelled successfully.');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to cancel booking.');
     } finally {
       setCancellingId(null);
     }
+  };
+
+  const openDetail = (bookingId: number) => {
+    setSelectedBookingId(bookingId);
+    setDetailOpen(true);
   };
 
   const displayName = user.type === 'student'
@@ -272,6 +456,17 @@ export const Profile = () => {
   return (
     <div className="min-h-screen bg-[#B19CD9]/5 py-8">
       <div className="container mx-auto px-4 max-w-4xl">
+
+        {/* Booking detail dialog */}
+        {selectedBookingId !== null && (
+          <BookingDetailDialog
+            bookingId={selectedBookingId}
+            open={detailOpen}
+            onClose={() => { setDetailOpen(false); setSelectedBookingId(null); }}
+            onCancel={handleCancelBooking}
+            cancellingId={cancellingId}
+          />
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
@@ -287,8 +482,8 @@ export const Profile = () => {
                 activeTab === 'bookings' ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
               <Bed className="w-4 h-4" />
               My Bookings
-              {bookingsCount > 0 && (
-                <span className="bg-[#00A5A7] text-white text-xs px-1.5 py-0.5 rounded-full">{bookingsCount}</span>
+              {activeBookingsCount > 0 && (
+                <span className="bg-[#00A5A7] text-white text-xs px-1.5 py-0.5 rounded-full">{activeBookingsCount}</span>
               )}
             </button>
           )}
@@ -600,7 +795,7 @@ export const Profile = () => {
         {/* ══ BOOKINGS TAB ══ */}
         {activeTab === 'bookings' && (
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
               <CardTitle className="text-[#34495E] flex items-center gap-2">
                 <Bed className="w-5 h-5 text-[#00A5A7]" />
                 My Bookings
@@ -608,6 +803,14 @@ export const Profile = () => {
                   <span className="text-sm text-[#717182] font-normal">({bookings.length} total)</span>
                 )}
               </CardTitle>
+              <Button
+                onClick={() => navigate('/houses')}
+                className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
+                size="sm"
+              >
+                <Home className="w-4 h-4 mr-2" />
+                Book a Room
+              </Button>
             </CardHeader>
             <CardContent>
               {bookingsLoading ? (
@@ -624,72 +827,33 @@ export const Profile = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {bookings.map((booking) => {
-                    const { label, color } = bookingStatusLabel(booking.status);
-                    return (
-                      <div key={booking.id} className="p-4 border rounded-lg space-y-2">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
-                            <Badge className={`${color} border text-xs`}>{label}</Badge>
-                            <span className="text-sm text-[#34495E] font-medium">
-                              {booking.listingTitle || `Listing #${booking.listingId}`}
-                            </span>
-                          </div>
-                          {booking.amount != null && (
-                            <span className="text-sm text-[#FF6F61] font-semibold">
-                              EGP {booking.amount.toLocaleString()}
-                            </span>
-                          )}
+                  {bookings.map((booking) => (
+                    <div
+                      key={booking.id}
+                      className="p-4 border rounded-lg hover:border-[#00A5A7]/40 transition-colors cursor-pointer"
+                      onClick={() => openDetail(booking.id)}
+                    >
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-[#34495E] font-medium">
+                            Booking #{booking.id}
+                          </span>
+                          <span className="text-xs text-[#717182]">· Listing #{booking.listingId}</span>
                         </div>
-                        <p className="text-sm text-[#717182]">
-                          Bed #{booking.bedId} · {booking.startDate} → {booking.endDate}
-                        </p>
-                        <div className="flex gap-2 pt-1">
-                          <Button
-                            variant="outline" size="sm"
-                            onClick={() => navigate(`/house/${booking.listingId}`)}
-                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
-                          >
-                            View Listing
-                          </Button>
-
-                          {/* ── Unbook / Cancel booking ── */}
-                          {booking.status === 1 && (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="outline" size="sm"
-                                  disabled={cancellingId === booking.id}
-                                  className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white"
-                                >
-                                  {cancellingId === booking.id ? 'Cancelling...' : 'Unbook'}
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    You're about to cancel your booking for{' '}
-                                    <strong>{booking.listingTitle || `Listing #${booking.listingId}`}</strong>{' '}
-                                    (Bed #{booking.bedId}). This cannot be undone.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Keep Booking</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleCancelBooking(booking.id)}
-                                    className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
-                                  >
-                                    Yes, Unbook
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          )}
-                        </div>
+                        <span className="text-xs text-[#00A5A7] font-medium">View Details →</span>
                       </div>
-                    );
-                  })}
+                      <div className="flex flex-wrap gap-4 text-sm text-[#717182] mt-2">
+                        <span className="flex items-center gap-1">
+                          <Bed className="w-3.5 h-3.5" />
+                          Bed #{booking.bedId}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {formatDate(booking.startDate)} → {formatDate(booking.endDate)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>
