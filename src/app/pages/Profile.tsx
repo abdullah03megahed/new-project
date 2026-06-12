@@ -57,52 +57,53 @@ export const Profile = () => {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
 
+  // Admin only shows profile tab (no reports)
+  const isAdmin = user?.type === 'admin';
   const [activeTab, setActiveTab] = useState<'profile' | 'reports'>('profile');
   const [isEditing, setIsEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [loading, setLoading]     = useState(true);
 
-  const [studentData, setStudentData] = useState<StudentProfile | null>(null);
+  const [studentData, setStudentData]   = useState<StudentProfile | null>(null);
   const [landlordData, setLandlordData] = useState<LandlordProfile | null>(null);
-  const [studentForm, setStudentForm] = useState<StudentProfile | null>(null);
+  const [studentForm, setStudentForm]   = useState<StudentProfile | null>(null);
   const [landlordForm, setLandlordForm] = useState<LandlordProfile | null>(null);
 
-  const [reports, setReports]             = useState<Report[]>([]);
+  const [reports, setReports]               = useState<Report[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [reportsCount, setReportsCount]   = useState(0);
+  const [reportsCount, setReportsCount]     = useState(0);
 
   // ─── Fetch profile ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
 
+    // Admin — no profile data to fetch from student/landlord endpoints
+    if (user.type === 'admin') {
+      setLoading(false);
+      return;
+    }
+
     const fetchProfile = async () => {
       try {
         if (user.type === 'student') {
           let data: StudentProfile;
-
-          // BUG FIX: user.id may be '' if user logged in before AuthContext was updated.
-          // Fall back to email-based lookup which always works.
           if (user.id) {
             data = await api.get<StudentProfile>(`/Student/${user.id}`);
           } else {
             data = await api.get<StudentProfile>(`/Student/Email?email=${encodeURIComponent(user.email)}`);
-            // Patch user object so future calls use the real id
             if (data?.id) updateUser({ id: String(data.id) });
           }
-
           setStudentData(data);
           setStudentForm(data);
 
         } else if (user.type === 'landlord') {
           let data: LandlordProfile;
-
           if (user.id) {
             data = await api.get<LandlordProfile>(`/LandLord/${user.id}`);
           } else {
             data = await api.get<LandlordProfile>(`/LandLord/Email?email=${encodeURIComponent(user.email)}`);
             if (data?.id) updateUser({ id: String(data.id) });
           }
-
           setLandlordData(data);
           setLandlordForm(data);
         }
@@ -119,7 +120,7 @@ export const Profile = () => {
 
   // ─── Fetch reports ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (activeTab !== 'reports' || !user) return;
+    if (activeTab !== 'reports' || !user || isAdmin) return;
     setReportsLoading(true);
     api.get<PaginatedReports>('/Report/GetUserReports?SortingOption=2&PageIndex=1&PageSize=20')
       .then(data => { setReports(data.data || []); setReportsCount(data.count || 0); })
@@ -176,31 +177,39 @@ export const Profile = () => {
     setIsEditing(false);
   };
 
-  const displayName = user.type === 'student'
-    ? `${studentData?.firstName ?? ''} ${studentData?.lastName ?? ''}`
-    : `${landlordData?.firstName ?? ''} ${landlordData?.lastName ?? ''}`;
+  const displayName = isAdmin
+    ? user.displayName || user.email
+    : user.type === 'student'
+      ? `${studentData?.firstName ?? ''} ${studentData?.lastName ?? ''}`
+      : `${landlordData?.firstName ?? ''} ${landlordData?.lastName ?? ''}`;
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#B19CD9]/5 py-8">
       <div className="container mx-auto px-4 max-w-4xl">
 
-        {/* Tabs */}
+        {/* Tabs — hide reports tab for admin */}
         <div className="flex gap-1 mb-6 border-b border-gray-200">
           <button onClick={() => setActiveTab('profile')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'profile' ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
+              activeTab === 'profile'
+                ? 'border-[#00A5A7] text-[#00A5A7]'
+                : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
             My Profile
           </button>
-          <button onClick={() => setActiveTab('reports')}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'reports' ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
-            <Flag className="w-4 h-4" />
-            My Reports
-            {reportsCount > 0 && (
-              <span className="bg-[#FF6F61] text-white text-xs px-1.5 py-0.5 rounded-full">{reportsCount}</span>
-            )}
-          </button>
+          {!isAdmin && (
+            <button onClick={() => setActiveTab('reports')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'reports'
+                  ? 'border-[#00A5A7] text-[#00A5A7]'
+                  : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
+              <Flag className="w-4 h-4" />
+              My Reports
+              {reportsCount > 0 && (
+                <span className="bg-[#FF6F61] text-white text-xs px-1.5 py-0.5 rounded-full">{reportsCount}</span>
+              )}
+            </button>
+          )}
         </div>
 
         {/* ══ PROFILE TAB ══ */}
@@ -209,30 +218,35 @@ export const Profile = () => {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-[#34495E]">My Profile</CardTitle>
-                {!isEditing ? (
-                  <Button onClick={() => setIsEditing(true)} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
-                    <Edit2 className="w-4 h-4 mr-2" />Edit Profile
-                  </Button>
-                ) : (
-                  <div className="flex gap-2">
-                    <Button onClick={handleSave} disabled={saving} className="bg-[#B8E986] hover:bg-[#B8E986]/90 text-[#34495E]">
-                      <Save className="w-4 h-4 mr-2" />{saving ? 'Saving...' : 'Save'}
+                {/* Admin and non-admin both get Edit button, but admin has no editable fields */}
+                {!isAdmin && (
+                  !isEditing ? (
+                    <Button onClick={() => setIsEditing(true)} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                      <Edit2 className="w-4 h-4 mr-2" />Edit Profile
                     </Button>
-                    <Button onClick={handleCancel} variant="outline" disabled={saving}>
-                      <X className="w-4 h-4 mr-2" />Cancel
-                    </Button>
-                  </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button onClick={handleSave} disabled={saving} className="bg-[#B8E986] hover:bg-[#B8E986]/90 text-[#34495E]">
+                        <Save className="w-4 h-4 mr-2" />{saving ? 'Saving...' : 'Save'}
+                      </Button>
+                      <Button onClick={handleCancel} variant="outline" disabled={saving}>
+                        <X className="w-4 h-4 mr-2" />Cancel
+                      </Button>
+                    </div>
+                  )
                 )}
               </CardHeader>
 
               <CardContent className="space-y-6">
-                {/* Avatar */}
+                {/* Avatar + name */}
                 <div className="flex items-center gap-4">
                   <Avatar className="w-20 h-20">
                     <AvatarFallback className="bg-[#00A5A7] text-white text-2xl">
-                      {user.type === 'student'
-                        ? initials(studentData?.firstName, studentData?.lastName)
-                        : initials(landlordData?.firstName, landlordData?.lastName)}
+                      {isAdmin
+                        ? (user.displayName?.[0] ?? user.email?.[0] ?? 'A').toUpperCase()
+                        : user.type === 'student'
+                          ? initials(studentData?.firstName, studentData?.lastName)
+                          : initials(landlordData?.firstName, landlordData?.lastName)}
                     </AvatarFallback>
                   </Avatar>
                   <div>
@@ -242,6 +256,23 @@ export const Profile = () => {
                     </span>
                   </div>
                 </div>
+
+                {/* Admin — show basic info only */}
+                {isAdmin && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Email</Label>
+                      <Input value={user.email} disabled />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Display Name</Label>
+                      <Input value={user.displayName || '—'} disabled />
+                    </div>
+                    <div className="p-4 bg-[#00A5A7]/5 border border-[#00A5A7]/20 rounded-lg text-sm text-[#717182]">
+                      Admin accounts are managed directly on the server. Profile editing is not available here.
+                    </div>
+                  </div>
+                )}
 
                 {/* ── Student Form ── */}
                 {user.type === 'student' && studentForm && (
@@ -496,8 +527,8 @@ export const Profile = () => {
           </>
         )}
 
-        {/* ══ REPORTS TAB ══ */}
-        {activeTab === 'reports' && (
+        {/* ══ REPORTS TAB — students & landlords only ══ */}
+        {activeTab === 'reports' && !isAdmin && (
           <Card>
             <CardHeader>
               <CardTitle className="text-[#34495E] flex items-center gap-2">
@@ -525,11 +556,15 @@ export const Profile = () => {
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <Badge className={`${color} border text-xs`}>{label}</Badge>
                           <span className="text-xs text-[#717182]">
-                            {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            {new Date(report.createdAt).toLocaleDateString('en-GB', {
+                              day: '2-digit', month: 'short', year: 'numeric',
+                            })}
                           </span>
                         </div>
                         <p className="text-sm text-[#34495E]">{report.reason}</p>
-                        <p className="text-xs text-[#717182]">Type: {report.type === 1 ? 'Listing Report' : 'User Report'}</p>
+                        <p className="text-xs text-[#717182]">
+                          Type: {report.type === 1 ? 'Listing Report' : 'User Report'}
+                        </p>
                       </div>
                     );
                   })}
