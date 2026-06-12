@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
 import { Badge } from '../components/ui/badge';
-import { Edit2, Save, X, Users, Moon, MapPin, GraduationCap, DollarSign, Flag } from 'lucide-react';
+import { Edit2, Save, X, Users, Moon, MapPin, GraduationCap, DollarSign, Flag, Bed } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router';
 
@@ -38,12 +38,33 @@ interface PaginatedReports {
   pageIndex: number; pageSize: number; count: number; data: Report[];
 }
 
+interface BookingDto {
+  id: number;
+  studentId: number;
+  studentName?: string;
+  landlordId?: number;
+  listingId: number;
+  listingTitle?: string;
+  bedId: number;
+  startDate: string;
+  endDate: string;
+  status: number; // 1=Active, 2=Cancelled, 3=Completed
+  amount?: number;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const reportStatusLabel = (s: number) => {
   if (s === 1) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
   if (s === 2) return { label: 'Resolved',  color: 'bg-green-100 text-green-700 border-green-200' };
   if (s === 3) return { label: 'Dismissed', color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
+};
+
+const bookingStatusLabel = (s: number) => {
+  if (s === 1) return { label: 'Active',    color: 'bg-green-100 text-green-700 border-green-200' };
+  if (s === 2) return { label: 'Cancelled', color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 3) return { label: 'Completed', color: 'bg-blue-100 text-blue-700 border-blue-200' };
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
@@ -57,53 +78,58 @@ export const Profile = () => {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
 
-  // Admin only shows profile tab (no reports)
-  const isAdmin = user?.type === 'admin';
-  const [activeTab, setActiveTab] = useState<'profile' | 'reports'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'reports' | 'bookings'>('profile');
   const [isEditing, setIsEditing] = useState(false);
-  const [saving, setSaving]       = useState(false);
-  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const [studentData, setStudentData]   = useState<StudentProfile | null>(null);
+  const [studentData, setStudentData] = useState<StudentProfile | null>(null);
   const [landlordData, setLandlordData] = useState<LandlordProfile | null>(null);
-  const [studentForm, setStudentForm]   = useState<StudentProfile | null>(null);
+  const [studentForm, setStudentForm] = useState<StudentProfile | null>(null);
   const [landlordForm, setLandlordForm] = useState<LandlordProfile | null>(null);
 
-  const [reports, setReports]               = useState<Report[]>([]);
+  const [reports, setReports]             = useState<Report[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [reportsCount, setReportsCount]     = useState(0);
+  const [reportsCount, setReportsCount]   = useState(0);
+
+  // ─── Bookings state ────────────────────────────────────────────────────
+  const [bookings, setBookings]             = useState<BookingDto[]>([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [bookingsCount, setBookingsCount]   = useState(0);
+  const [cancellingId, setCancellingId]     = useState<number | null>(null);
 
   // ─── Fetch profile ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
 
-    // Admin — no profile data to fetch from student/landlord endpoints
-    if (user.type === 'admin') {
-      setLoading(false);
-      return;
-    }
-
     const fetchProfile = async () => {
       try {
         if (user.type === 'student') {
           let data: StudentProfile;
+
+          // BUG FIX: user.id may be '' if user logged in before AuthContext was updated.
+          // Fall back to email-based lookup which always works.
           if (user.id) {
             data = await api.get<StudentProfile>(`/Student/${user.id}`);
           } else {
             data = await api.get<StudentProfile>(`/Student/Email?email=${encodeURIComponent(user.email)}`);
+            // Patch user object so future calls use the real id
             if (data?.id) updateUser({ id: String(data.id) });
           }
+
           setStudentData(data);
           setStudentForm(data);
 
         } else if (user.type === 'landlord') {
           let data: LandlordProfile;
+
           if (user.id) {
             data = await api.get<LandlordProfile>(`/LandLord/${user.id}`);
           } else {
             data = await api.get<LandlordProfile>(`/LandLord/Email?email=${encodeURIComponent(user.email)}`);
             if (data?.id) updateUser({ id: String(data.id) });
           }
+
           setLandlordData(data);
           setLandlordForm(data);
         }
@@ -120,12 +146,26 @@ export const Profile = () => {
 
   // ─── Fetch reports ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (activeTab !== 'reports' || !user || isAdmin) return;
+    if (activeTab !== 'reports' || !user) return;
     setReportsLoading(true);
     api.get<PaginatedReports>('/Report/GetUserReports?SortingOption=2&PageIndex=1&PageSize=20')
       .then(data => { setReports(data.data || []); setReportsCount(data.count || 0); })
       .catch(() => toast.error('Failed to load reports.'))
       .finally(() => setReportsLoading(false));
+  }, [activeTab, user]);
+
+  // ─── Fetch bookings (students only) ───────────────────────────────────────
+  useEffect(() => {
+    if (activeTab !== 'bookings' || !user || user.type !== 'student' || !user.id) return;
+    setBookingsLoading(true);
+    api.get<any>(`/Booking/GetStudentBookings/${user.id}`)
+      .then(data => {
+        const list: BookingDto[] = Array.isArray(data) ? data : (data?.data || []);
+        setBookings(list);
+        setBookingsCount(list.filter(b => b.status === 1).length);
+      })
+      .catch(() => toast.error('Failed to load your bookings.'))
+      .finally(() => setBookingsLoading(false));
   }, [activeTab, user]);
 
   if (!user) {
@@ -177,39 +217,60 @@ export const Profile = () => {
     setIsEditing(false);
   };
 
-  const displayName = isAdmin
-    ? user.displayName || user.email
-    : user.type === 'student'
-      ? `${studentData?.firstName ?? ''} ${studentData?.lastName ?? ''}`
-      : `${landlordData?.firstName ?? ''} ${landlordData?.lastName ?? ''}`;
+  // ─── Cancel booking ─────────────────────────────────────────────────────
+  const handleCancelBooking = async (bookingId: number) => {
+    if (!confirm('Cancel this booking? This cannot be undone.')) return;
+    setCancellingId(bookingId);
+    try {
+      await api.put(`/Booking/CancelBooking/${bookingId}`, {});
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: 2 } : b));
+      setBookingsCount(prev => Math.max(0, prev - 1));
+      toast.success('Booking cancelled successfully.');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel booking.');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const displayName = user.type === 'student'
+    ? `${studentData?.firstName ?? ''} ${studentData?.lastName ?? ''}`
+    : `${landlordData?.firstName ?? ''} ${landlordData?.lastName ?? ''}`;
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#B19CD9]/5 py-8">
       <div className="container mx-auto px-4 max-w-4xl">
 
-        {/* Tabs — hide reports tab for admin */}
-        <div className="flex gap-1 mb-6 border-b border-gray-200">
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
           <button onClick={() => setActiveTab('profile')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'profile'
-                ? 'border-[#00A5A7] text-[#00A5A7]'
-                : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'profile' ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
             My Profile
           </button>
-          {!isAdmin && (
-            <button onClick={() => setActiveTab('reports')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'reports'
-                  ? 'border-[#00A5A7] text-[#00A5A7]'
-                  : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
-              <Flag className="w-4 h-4" />
-              My Reports
-              {reportsCount > 0 && (
-                <span className="bg-[#FF6F61] text-white text-xs px-1.5 py-0.5 rounded-full">{reportsCount}</span>
+
+          {user.type === 'student' && (
+            <button onClick={() => setActiveTab('bookings')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                activeTab === 'bookings' ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
+              <Bed className="w-4 h-4" />
+              My Bookings
+              {bookingsCount > 0 && (
+                <span className="bg-[#00A5A7] text-white text-xs px-1.5 py-0.5 rounded-full">{bookingsCount}</span>
               )}
             </button>
           )}
+
+          <button onClick={() => setActiveTab('reports')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'reports' ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'}`}>
+            <Flag className="w-4 h-4" />
+            My Reports
+            {reportsCount > 0 && (
+              <span className="bg-[#FF6F61] text-white text-xs px-1.5 py-0.5 rounded-full">{reportsCount}</span>
+            )}
+          </button>
         </div>
 
         {/* ══ PROFILE TAB ══ */}
@@ -218,35 +279,30 @@ export const Profile = () => {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-[#34495E]">My Profile</CardTitle>
-                {/* Admin and non-admin both get Edit button, but admin has no editable fields */}
-                {!isAdmin && (
-                  !isEditing ? (
-                    <Button onClick={() => setIsEditing(true)} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
-                      <Edit2 className="w-4 h-4 mr-2" />Edit Profile
+                {!isEditing ? (
+                  <Button onClick={() => setIsEditing(true)} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                    <Edit2 className="w-4 h-4 mr-2" />Edit Profile
+                  </Button>
+                ) : (
+                  <div className="flex gap-2">
+                    <Button onClick={handleSave} disabled={saving} className="bg-[#B8E986] hover:bg-[#B8E986]/90 text-[#34495E]">
+                      <Save className="w-4 h-4 mr-2" />{saving ? 'Saving...' : 'Save'}
                     </Button>
-                  ) : (
-                    <div className="flex gap-2">
-                      <Button onClick={handleSave} disabled={saving} className="bg-[#B8E986] hover:bg-[#B8E986]/90 text-[#34495E]">
-                        <Save className="w-4 h-4 mr-2" />{saving ? 'Saving...' : 'Save'}
-                      </Button>
-                      <Button onClick={handleCancel} variant="outline" disabled={saving}>
-                        <X className="w-4 h-4 mr-2" />Cancel
-                      </Button>
-                    </div>
-                  )
+                    <Button onClick={handleCancel} variant="outline" disabled={saving}>
+                      <X className="w-4 h-4 mr-2" />Cancel
+                    </Button>
+                  </div>
                 )}
               </CardHeader>
 
               <CardContent className="space-y-6">
-                {/* Avatar + name */}
+                {/* Avatar */}
                 <div className="flex items-center gap-4">
                   <Avatar className="w-20 h-20">
                     <AvatarFallback className="bg-[#00A5A7] text-white text-2xl">
-                      {isAdmin
-                        ? (user.displayName?.[0] ?? user.email?.[0] ?? 'A').toUpperCase()
-                        : user.type === 'student'
-                          ? initials(studentData?.firstName, studentData?.lastName)
-                          : initials(landlordData?.firstName, landlordData?.lastName)}
+                      {user.type === 'student'
+                        ? initials(studentData?.firstName, studentData?.lastName)
+                        : initials(landlordData?.firstName, landlordData?.lastName)}
                     </AvatarFallback>
                   </Avatar>
                   <div>
@@ -256,23 +312,6 @@ export const Profile = () => {
                     </span>
                   </div>
                 </div>
-
-                {/* Admin — show basic info only */}
-                {isAdmin && (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Email</Label>
-                      <Input value={user.email} disabled />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Display Name</Label>
-                      <Input value={user.displayName || '—'} disabled />
-                    </div>
-                    <div className="p-4 bg-[#00A5A7]/5 border border-[#00A5A7]/20 rounded-lg text-sm text-[#717182]">
-                      Admin accounts are managed directly on the server. Profile editing is not available here.
-                    </div>
-                  </div>
-                )}
 
                 {/* ── Student Form ── */}
                 {user.type === 'student' && studentForm && (
@@ -527,8 +566,76 @@ export const Profile = () => {
           </>
         )}
 
-        {/* ══ REPORTS TAB — students & landlords only ══ */}
-        {activeTab === 'reports' && !isAdmin && (
+        {/* ══ BOOKINGS TAB ══ */}
+        {activeTab === 'bookings' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-[#34495E] flex items-center gap-2">
+                <Bed className="w-5 h-5 text-[#00A5A7]" />
+                My Bookings
+                {bookings.length > 0 && (
+                  <span className="text-sm text-[#717182] font-normal">({bookings.length} total)</span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {bookingsLoading ? (
+                <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}</div>
+              ) : bookings.length === 0 ? (
+                <div className="text-center py-12">
+                  <Bed className="w-12 h-12 text-[#717182] mx-auto mb-3" />
+                  <p className="text-[#717182] mb-4">You haven't booked any beds yet.</p>
+                  <Button onClick={() => navigate('/houses')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                    Browse Houses
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {bookings.map((booking) => {
+                    const { label, color } = bookingStatusLabel(booking.status);
+                    return (
+                      <div key={booking.id} className="p-4 border rounded-lg space-y-2">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <Badge className={`${color} border text-xs`}>{label}</Badge>
+                            <span className="text-sm text-[#34495E] font-medium">
+                              {booking.listingTitle || `Listing #${booking.listingId}`}
+                            </span>
+                          </div>
+                          {booking.amount != null && (
+                            <span className="text-sm text-[#FF6F61] font-semibold">
+                              EGP {booking.amount.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-[#717182]">
+                          Bed #{booking.bedId} · {booking.startDate} → {booking.endDate}
+                        </p>
+                        <div className="flex gap-2 pt-1">
+                          <Button variant="outline" size="sm"
+                            onClick={() => navigate(`/house/${booking.listingId}`)}
+                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
+                            View Listing
+                          </Button>
+                          {booking.status === 1 && (
+                            <Button variant="outline" size="sm" disabled={cancellingId === booking.id}
+                              onClick={() => handleCancelBooking(booking.id)}
+                              className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
+                              {cancellingId === booking.id ? 'Cancelling...' : 'Cancel Booking'}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ══ REPORTS TAB ══ */}
+        {activeTab === 'reports' && (
           <Card>
             <CardHeader>
               <CardTitle className="text-[#34495E] flex items-center gap-2">
@@ -556,15 +663,11 @@ export const Profile = () => {
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <Badge className={`${color} border text-xs`}>{label}</Badge>
                           <span className="text-xs text-[#717182]">
-                            {new Date(report.createdAt).toLocaleDateString('en-GB', {
-                              day: '2-digit', month: 'short', year: 'numeric',
-                            })}
+                            {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                           </span>
                         </div>
                         <p className="text-sm text-[#34495E]">{report.reason}</p>
-                        <p className="text-xs text-[#717182]">
-                          Type: {report.type === 1 ? 'Listing Report' : 'User Report'}
-                        </p>
+                        <p className="text-xs text-[#717182]">Type: {report.type === 1 ? 'Listing Report' : 'User Report'}</p>
                       </div>
                     );
                   })}
