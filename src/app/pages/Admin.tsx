@@ -13,42 +13,54 @@ import {
 } from '../components/ui/dialog';
 import {
   Users, Home, TrendingUp, Flag, CheckCircle, XCircle,
-  Search, Ban, ShieldOff, MapPin, BookOpen, Bed, User, Calendar,
+  Search, Ban, ShieldOff, MapPin, BookOpen, Bed, User, Calendar, ShieldAlert,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface DashboardStats {
-  totalStudents: number; totalLandlords: number;
-  totalListings: number; totalBookings: number;
-  availableBeds: number; occupiedBeds: number; pendingListings: number;
+  totalStudents: number;
+  totalLandlords: number;
+  totalListings: number;
+  totalBookings: number;
+  availableBeds: number;
+  occupiedBeds: number;
+  pendingListings: number;
+  totalBans: number;
+  totalReports: number;
   recentListings: RecentListing[];
   recentBookings: RecentBooking[];
 }
+
 interface RecentListing {
   id: number; title: string; city: string; landlordName: string;
   address: string; status: number; listingImages: string[]; publishedAt: string;
   pricePerMonth?: number;
 }
+
 interface RecentBooking {
   id: number; startDate: string; endDate: string; listingId: number; bedId: number;
 }
+
 interface Landlord {
   id: number; firstName: string; lastName: string;
   email: string; phoneNumber?: string; nationalId?: string;
   homeTown?: string; birthDate?: string; accountId: string; isBanned?: boolean;
 }
+
 interface Student {
   id: number; firstName: string; lastName: string;
   email: string; phoneNumber?: string; gender?: number;
   facultyField?: string; homeTown?: string; accountId: string; isBanned?: boolean;
 }
+
 interface Report {
   id?: number;
   reporterId: string; reportedId: string; reason: string;
   status: number; type: number; createdAt: string;
 }
+
 interface PaginatedReports {
   pageIndex: number; pageSize: number; count: number; data: Report[];
 }
@@ -64,12 +76,18 @@ interface BookingDto {
   bedId: number;
   startDate: string;
   endDate: string;
-  status: number; // 1=Active, 2=Cancelled, 3=Completed
+  status: number;
   amount?: number;
   durationInMonths?: number;
 }
-interface PaginatedBookings {
-  pageIndex: number; pageSize: number; count: number; data: BookingDto[];
+
+interface BanRecord {
+  userId: string;
+  isActive: boolean;
+}
+
+interface PaginatedBans {
+  pageIndex: number; pageSize: number; count: number; data: BanRecord[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -82,9 +100,9 @@ const prefixImage = (img: string) => {
 };
 
 const statusInfo = (s: number) => {
-  if (s === 1) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
-  if (s === 2) return { label: 'Resolved' ,  color: 'bg-green-100 text-green-700 border-green-200' };
-  if (s === 3) return { label: 'Rejected' , color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 1) return { label: 'Pending',  color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  if (s === 2) return { label: 'Resolved', color: 'bg-green-100 text-green-700 border-green-200' };
+  if (s === 3) return { label: 'Rejected', color: 'bg-gray-100 text-gray-500 border-gray-200' };
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
 };
 
@@ -262,6 +280,32 @@ const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, 
   </div>
 );
 
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+interface StatCardProps {
+  label: string;
+  value: number | string;
+  icon: React.ReactNode;
+  onClick?: () => void;
+  highlight?: boolean;
+}
+
+const StatCard = ({ label, value, icon, onClick, highlight }: StatCardProps) => (
+  <Card
+    onClick={onClick}
+    className={`transition-all ${onClick ? 'cursor-pointer hover:border-[#00A5A7] hover:shadow-md' : ''} ${highlight ? 'border-[#00A5A7]/40' : ''}`}
+  >
+    <CardHeader className="flex flex-row items-center justify-between pb-2">
+      <CardTitle className="text-[#717182] text-xs">{label}</CardTitle>
+      {icon}
+    </CardHeader>
+    <CardContent>
+      <div className="text-[#34495E] text-2xl font-bold">{value}</div>
+      {onClick && <p className="text-[#00A5A7] text-xs mt-1">Click to view →</p>}
+    </CardContent>
+  </Card>
+);
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export const Admin = () => {
@@ -273,6 +317,9 @@ export const Admin = () => {
   const [landlords, setLandlords] = useState<Landlord[]>([]);
   const [students, setStudents]   = useState<Student[]>([]);
   const [loading, setLoading]     = useState(true);
+
+  // Set of banned accountIds (source of truth, loaded from /Ban/GetAllBans)
+  const [bannedIds, setBannedIds] = useState<Set<string>>(new Set());
 
   const [landlordEmailInput, setLandlordEmailInput] = useState('');
   const [foundLandlord, setFoundLandlord]           = useState<Landlord | null>(null);
@@ -295,7 +342,6 @@ export const Admin = () => {
   const [listingReportsLoading, setListingReportsLoading] = useState(false);
   const [searchedListingId, setSearchedListingId]         = useState<string | null>(null);
 
-  // ─── All Bookings state ─────────────────────────────────────────────────────
   const [bookings, setBookings]               = useState<BookingDto[]>([]);
   const [bookingCount, setBookingCount]       = useState(0);
   const [bookingStatusFilter, setBookingStatusFilter] = useState<string>('all');
@@ -309,23 +355,52 @@ export const Admin = () => {
     );
   }
 
+  // ─── Fetch active bans and return a Set of banned accountIds ──────────────
+  const fetchBannedIds = async (): Promise<Set<string>> => {
+    try {
+      const data = await api.get<PaginatedBans>('/Ban/GetAllBans?IsActive=true&PageIndex=1&PageSize=500');
+      const records: BanRecord[] = data?.data || [];
+      return new Set(records.filter(r => r.isActive).map(r => r.userId));
+    } catch {
+      return new Set();
+    }
+  };
+
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
       try {
-        const [statsRes, landlordsRes, studentsRes] = await Promise.allSettled([
-          api.get<DashboardStats>('/admin/dashboard'),
-          api.get<Landlord[]>('/LandLord'),
-          api.get<Student[]>('/Student'),
+        const [statsRes, landlordsRes, studentsRes, bansSet] = await Promise.all([
+          api.get<DashboardStats>('/admin/dashboard').catch(() => null),
+          api.get<Landlord[]>('/LandLord').catch(() => []),
+          api.get<Student[]>('/Student').catch(() => []),
+          fetchBannedIds(),
         ]);
-        if (statsRes.status     === 'fulfilled') setStats(statsRes.value);
-        if (landlordsRes.status === 'fulfilled') setLandlords(landlordsRes.value || []);
-        if (studentsRes.status  === 'fulfilled') setStudents(studentsRes.value  || []);
-      } catch { /* silently fail */ }
-      finally { setLoading(false); }
+
+        if (statsRes) setStats(statsRes);
+        setBannedIds(bansSet);
+
+        // Merge isBanned into landlords and students using the bans set
+        const landlordsArr: Landlord[] = (landlordsRes || []).map(l => ({
+          ...l,
+          isBanned: bansSet.has(l.accountId),
+        }));
+        const studentsArr: Student[] = (studentsRes || []).map(s => ({
+          ...s,
+          isBanned: bansSet.has(s.accountId),
+        }));
+
+        setLandlords(landlordsArr);
+        setStudents(studentsArr);
+      } catch {
+        /* silently fail */
+      } finally {
+        setLoading(false);
+      }
     };
     fetchAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -335,7 +410,6 @@ export const Admin = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, reportStatus]);
 
-  // ─── Fetch all bookings (admin) ─────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (activeTab !== 'bookings') return;
@@ -379,22 +453,40 @@ export const Admin = () => {
 
   const handleLandlordSearch = async () => {
     if (!landlordEmailInput.trim()) return;
-    setLandlordSearching(true); setFoundLandlord(null); setLandlordNotFound(false);
+    setLandlordSearching(true);
+    setFoundLandlord(null);
+    setLandlordNotFound(false);
     try {
       const data = await api.get<Landlord>(`/LandLord/Email?email=${encodeURIComponent(landlordEmailInput.trim())}`);
-      data?.id ? setFoundLandlord(data) : setLandlordNotFound(true);
-    } catch { setLandlordNotFound(true); }
-    finally   { setLandlordSearching(false); }
+      if (data?.id) {
+        setFoundLandlord({ ...data, isBanned: bannedIds.has(data.accountId) });
+      } else {
+        setLandlordNotFound(true);
+      }
+    } catch {
+      setLandlordNotFound(true);
+    } finally {
+      setLandlordSearching(false);
+    }
   };
 
   const handleStudentSearch = async () => {
     if (!studentEmailInput.trim()) return;
-    setStudentSearching(true); setFoundStudent(null); setStudentNotFound(false);
+    setStudentSearching(true);
+    setFoundStudent(null);
+    setStudentNotFound(false);
     try {
       const data = await api.get<Student>(`/Student/Email?email=${encodeURIComponent(studentEmailInput.trim())}`);
-      data?.id ? setFoundStudent(data) : setStudentNotFound(true);
-    } catch { setStudentNotFound(true); }
-    finally   { setStudentSearching(false); }
+      if (data?.id) {
+        setFoundStudent({ ...data, isBanned: bannedIds.has(data.accountId) });
+      } else {
+        setStudentNotFound(true);
+      }
+    } catch {
+      setStudentNotFound(true);
+    } finally {
+      setStudentSearching(false);
+    }
   };
 
   const handleDeleteLandlord = async (id: number) => {
@@ -417,7 +509,7 @@ export const Admin = () => {
     } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed.'); }
   };
 
-  // ─── Unban — updates state so UI reflects change immediately ───────────────
+  // ─── Unban ────────────────────────────────────────────────────────────────
   const handleUnban = async (
     accountId: string,
     name: string,
@@ -427,6 +519,8 @@ export const Admin = () => {
     try {
       await api.put(`/Ban/UnBanUser/${accountId}`, {});
       toast.success(`${name} has been unbanned.`);
+
+      setBannedIds(prev => { const next = new Set(prev); next.delete(accountId); return next; });
 
       if (type === 'landlord') {
         setLandlords(prev => prev.map(l => l.id === id ? { ...l, isBanned: false } : l));
@@ -440,8 +534,10 @@ export const Admin = () => {
     }
   };
 
-  // ─── Ban callback — updates state so Ban button flips to Unban immediately ─
-  const handleBanned = (type: 'landlord' | 'student', id: number) => {
+  // ─── Ban callback ─────────────────────────────────────────────────────────
+  const handleBanned = (type: 'landlord' | 'student', id: number, accountId: string) => {
+    setBannedIds(prev => new Set([...prev, accountId]));
+
     if (type === 'landlord') {
       setLandlords(prev => prev.map(l => l.id === id ? { ...l, isBanned: true } : l));
       setFoundLandlord(prev => prev?.id === id ? { ...prev, isBanned: true } : prev);
@@ -483,15 +579,17 @@ export const Admin = () => {
       setListingReports(data.data || []);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to fetch reports.');
-    } finally { setListingReportsLoading(false); }
+    } finally {
+      setListingReportsLoading(false);
+    }
   };
 
   const tabs = [
-    { id: 'overview',  label: 'Overview',                                              icon: TrendingUp },
-    { id: 'landlords', label: `Landlords (${landlords.length})`,                       icon: Home },
-    { id: 'students',  label: `Students (${students.length})`,                         icon: Users },
+    { id: 'overview',  label: 'Overview',                                                icon: TrendingUp },
+    { id: 'landlords', label: `Landlords (${landlords.length})`,                         icon: Home },
+    { id: 'students',  label: `Students (${students.length})`,                           icon: Users },
     { id: 'bookings',  label: `Bookings${bookingCount > 0 ? ` (${bookingCount})` : ''}`, icon: BookOpen },
-    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`,  icon: Flag },
+    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`,    icon: Flag },
   ] as const;
 
   return (
@@ -519,30 +617,66 @@ export const Admin = () => {
         {/* ════════ OVERVIEW ════════ */}
         {activeTab === 'overview' && (
           <div className="space-y-8">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {loading
-                ? [1,2,3,4,5,6,7].map(i => <div key={i} className="h-28 bg-gray-100 rounded-lg animate-pulse" />)
-                : [
-                    { label: 'Total Students',   value: stats?.totalStudents   ?? students.length,  icon: <Users      className="w-5 h-5 text-[#00A5A7]" /> },
-                    { label: 'Total Landlords',  value: stats?.totalLandlords  ?? landlords.length, icon: <Home       className="w-5 h-5 text-[#B8E986]" /> },
-                    { label: 'Total Listings',   value: stats?.totalListings   ?? '—',              icon: <TrendingUp className="w-5 h-5 text-[#FFC759]" /> },
-                    { label: 'Total Bookings',   value: stats?.totalBookings   ?? '—',              icon: <BookOpen   className="w-5 h-5 text-[#B19CD9]" /> },
-                    { label: 'Available Beds',   value: stats?.availableBeds   ?? '—',              icon: <Bed        className="w-5 h-5 text-[#B8E986]" /> },
-                    { label: 'Occupied Beds',    value: stats?.occupiedBeds    ?? '—',              icon: <Bed        className="w-5 h-5 text-[#FF6F61]" /> },
-                    { label: 'Pending Listings', value: stats?.pendingListings ?? '—',              icon: <Flag       className="w-5 h-5 text-orange-400" /> },
-                  ].map(({ label, value, icon }) => (
-                    <Card key={label}>
-                      <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle className="text-[#717182] text-xs">{label}</CardTitle>
-                        {icon}
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-[#34495E] text-2xl font-bold">{value}</div>
-                      </CardContent>
-                    </Card>
-                  ))
-              }
-            </div>
+            {loading ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[1,2,3,4,5,6,7,8,9].map(i => (
+                  <div key={i} className="h-28 bg-gray-100 rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <StatCard
+                  label="Total Students"
+                  value={stats?.totalStudents ?? students.length}
+                  icon={<Users className="w-5 h-5 text-[#00A5A7]" />}
+                  onClick={() => setActiveTab('students')}
+                />
+                <StatCard
+                  label="Total Landlords"
+                  value={stats?.totalLandlords ?? landlords.length}
+                  icon={<Home className="w-5 h-5 text-[#B8E986]" />}
+                  onClick={() => setActiveTab('landlords')}
+                />
+                <StatCard
+                  label="Total Listings"
+                  value={stats?.totalListings ?? '—'}
+                  icon={<TrendingUp className="w-5 h-5 text-[#FFC759]" />}
+                  onClick={() => navigate('/houses')}
+                />
+                <StatCard
+                  label="Total Bookings"
+                  value={stats?.totalBookings ?? '—'}
+                  icon={<BookOpen className="w-5 h-5 text-[#B19CD9]" />}
+                  onClick={() => setActiveTab('bookings')}
+                />
+                <StatCard
+                  label="Available Beds"
+                  value={stats?.availableBeds ?? '—'}
+                  icon={<Bed className="w-5 h-5 text-[#B8E986]" />}
+                />
+                <StatCard
+                  label="Occupied Beds"
+                  value={stats?.occupiedBeds ?? '—'}
+                  icon={<Bed className="w-5 h-5 text-[#FF6F61]" />}
+                />
+                <StatCard
+                  label="Pending Listings"
+                  value={stats?.pendingListings ?? '—'}
+                  icon={<Flag className="w-5 h-5 text-orange-400" />}
+                />
+                <StatCard
+                  label="Total Reports"
+                  value={stats?.totalReports ?? reportCount}
+                  icon={<Flag className="w-5 h-5 text-[#FF6F61]" />}
+                  onClick={() => setActiveTab('reports')}
+                />
+                <StatCard
+                  label="Total Bans"
+                  value={stats?.totalBans ?? bannedIds.size}
+                  icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
+                />
+              </div>
+            )}
 
             {stats?.recentListings && stats.recentListings.length > 0 && (
               <Card>
@@ -578,9 +712,13 @@ export const Admin = () => {
                             <MapPin className="w-3 h-3" />
                             <span>{listing.address ? `${listing.address}, ` : ''}{listing.city}</span>
                           </div>
-                          <p className="text-[#717182] text-sm">By <span className="text-[#00A5A7]">{listing.landlordName}</span></p>
+                          <p className="text-[#717182] text-sm">
+                            By <span className="text-[#00A5A7]">{listing.landlordName}</span>
+                          </p>
                           <p className="text-[#717182] text-xs mt-1">
-                            {new Date(listing.publishedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            {new Date(listing.publishedAt).toLocaleDateString('en-GB', {
+                              day: '2-digit', month: 'short', year: 'numeric',
+                            })}
                           </p>
                         </div>
                       </div>
@@ -598,14 +736,16 @@ export const Admin = () => {
                 <CardContent>
                   <div className="space-y-3">
                     {stats.recentBookings.map(booking => (
-                      <div key={booking.id} className="flex justify-between items-center p-3 border rounded-lg">
+                      <div key={booking.id}
+                        className="flex justify-between items-center p-3 border rounded-lg hover:border-[#00A5A7] transition-colors cursor-pointer"
+                        onClick={() => setActiveTab('bookings')}>
                         <div>
                           <p className="text-[#34495E] text-sm font-medium">Booking #{booking.id}</p>
                           <p className="text-[#717182] text-xs">Listing #{booking.listingId} · Bed #{booking.bedId}</p>
                         </div>
                         <div className="text-right text-xs text-[#717182]">
-                          <p>{booking.startDate}</p>
-                          <p>→ {booking.endDate}</p>
+                          <p>{formatDate(booking.startDate)}</p>
+                          <p>→ {formatDate(booking.endDate)}</p>
                         </div>
                       </div>
                     ))}
@@ -647,7 +787,7 @@ export const Admin = () => {
                       accountId={foundLandlord.accountId}
                       numericId={foundLandlord.id}
                       isBanned={foundLandlord.isBanned}
-                      onBanned={() => handleBanned('landlord', foundLandlord.id)}
+                      onBanned={() => handleBanned('landlord', foundLandlord.id, foundLandlord.accountId)}
                       extra={
                         <div className="space-y-0.5">
                           {foundLandlord.phoneNumber && <p className="text-sm text-[#717182]">{foundLandlord.phoneNumber}</p>}
@@ -657,7 +797,12 @@ export const Admin = () => {
                       }
                       onRemove={() => handleDeleteLandlord(foundLandlord.id)}
                       onUnban={foundLandlord.accountId
-                        ? () => handleUnban(foundLandlord.accountId, `${foundLandlord.firstName} ${foundLandlord.lastName}`, 'landlord', foundLandlord.id)
+                        ? () => handleUnban(
+                            foundLandlord.accountId,
+                            `${foundLandlord.firstName} ${foundLandlord.lastName}`,
+                            'landlord',
+                            foundLandlord.id
+                          )
                         : undefined}
                     />
                   </div>
@@ -686,7 +831,7 @@ export const Admin = () => {
                         isBanned={l.isBanned}
                         extra={l.phoneNumber ? <p className="text-sm text-[#717182]">{l.phoneNumber}</p> : undefined}
                         onRemove={() => handleDeleteLandlord(l.id)}
-                        onBanned={() => handleBanned('landlord', l.id)}
+                        onBanned={() => handleBanned('landlord', l.id, l.accountId)}
                         onUnban={l.accountId
                           ? () => handleUnban(l.accountId, `${l.firstName} ${l.lastName}`, 'landlord', l.id)
                           : undefined}
@@ -730,7 +875,7 @@ export const Admin = () => {
                       accountId={foundStudent.accountId}
                       numericId={foundStudent.id}
                       isBanned={foundStudent.isBanned}
-                      onBanned={() => handleBanned('student', foundStudent.id)}
+                      onBanned={() => handleBanned('student', foundStudent.id, foundStudent.accountId)}
                       extra={
                         <div className="space-y-0.5">
                           {foundStudent.phoneNumber  && <p className="text-sm text-[#717182]">{foundStudent.phoneNumber}</p>}
@@ -740,7 +885,12 @@ export const Admin = () => {
                       }
                       onRemove={() => handleDeleteStudent(foundStudent.id)}
                       onUnban={foundStudent.accountId
-                        ? () => handleUnban(foundStudent.accountId, `${foundStudent.firstName} ${foundStudent.lastName}`, 'student', foundStudent.id)
+                        ? () => handleUnban(
+                            foundStudent.accountId,
+                            `${foundStudent.firstName} ${foundStudent.lastName}`,
+                            'student',
+                            foundStudent.id
+                          )
                         : undefined}
                     />
                   </div>
@@ -769,7 +919,7 @@ export const Admin = () => {
                         isBanned={s.isBanned}
                         extra={s.facultyField ? <p className="text-sm text-[#717182]">{s.facultyField}</p> : undefined}
                         onRemove={() => handleDeleteStudent(s.id)}
-                        onBanned={() => handleBanned('student', s.id)}
+                        onBanned={() => handleBanned('student', s.id, s.accountId)}
                         onUnban={s.accountId
                           ? () => handleUnban(s.accountId, `${s.firstName} ${s.lastName}`, 'student', s.id)
                           : undefined}
@@ -806,7 +956,7 @@ export const Admin = () => {
             <CardContent>
               {bookingsLoading ? (
                 <div className="space-y-3">
-                  {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}
+                  {[1,2,3,4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}
                 </div>
               ) : bookings.length === 0 ? (
                 <div className="text-center py-12">
@@ -895,7 +1045,8 @@ export const Admin = () => {
                     <Search className="w-4 h-4 mr-2" />{listingReportsLoading ? 'Searching...' : 'Search'}
                   </Button>
                   {searchedListingId && (
-                    <Button variant="ghost" onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
+                    <Button variant="ghost"
+                      onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
                       className="text-[#717182]">Clear</Button>
                   )}
                 </div>
@@ -919,7 +1070,9 @@ export const Admin = () => {
                             </span>
                           </div>
                           <p className="text-sm text-[#34495E]">{r.reason}</p>
-                          <p className="text-xs text-[#717182]">Reporter: <span className="font-mono">{r.reporterId?.slice(0,8)}…</span></p>
+                          <p className="text-xs text-[#717182]">
+                            Reporter: <span className="font-mono">{r.reporterId?.slice(0,8)}…</span>
+                          </p>
                         </div>
                       );
                     })}
@@ -936,7 +1089,7 @@ export const Admin = () => {
                     Review and manage user reports.
                     {reports.length > 0 && !reports[0]?.id && (
                       <span className="text-amber-600 ml-2 text-xs">
-                        ⚠ Backend must include "id" in GetAllReports response to enable Resolve/Reject.
+                        ⚠ Backend must include "id" in GetAllReports to enable Resolve/Reject.
                       </span>
                     )}
                   </CardDescription>
@@ -971,7 +1124,9 @@ export const Admin = () => {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Badge className={`${color} border text-xs`}>{label}</Badge>
                                 <span className="text-xs text-[#717182]">
-                                  {new Date(report.createdAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}
+                                  {new Date(report.createdAt).toLocaleDateString('en-GB', {
+                                    day:'2-digit', month:'short', year:'numeric',
+                                  })}
                                 </span>
                                 <span className="text-xs text-[#717182]">
                                   {report.type === 1 ? '📋 Listing' : '👤 User'}
