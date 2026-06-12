@@ -13,7 +13,7 @@ import {
 } from '../components/ui/dialog';
 import {
   Users, Home, TrendingUp, Flag, CheckCircle, XCircle,
-  Search, Ban, ShieldOff, MapPin, BookOpen, Bed,
+  Search, Ban, ShieldOff, MapPin, BookOpen, Bed, User, Calendar,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -53,6 +53,25 @@ interface PaginatedReports {
   pageIndex: number; pageSize: number; count: number; data: Report[];
 }
 
+interface BookingDto {
+  id: number;
+  studentId: number;
+  studentName?: string;
+  landlordId?: number;
+  landlordName?: string;
+  listingId: number;
+  listingTitle?: string;
+  bedId: number;
+  startDate: string;
+  endDate: string;
+  status: number; // 1=Active, 2=Cancelled, 3=Completed
+  amount?: number;
+  durationInMonths?: number;
+}
+interface PaginatedBookings {
+  pageIndex: number; pageSize: number; count: number; data: BookingDto[];
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const IMAGE_BASE = 'https://unimate.runasp.net/';
@@ -67,6 +86,18 @@ const statusInfo = (s: number) => {
   if (s === 2) return { label: 'Resolved' ,  color: 'bg-green-100 text-green-700 border-green-200' };
   if (s === 3) return { label: 'Rejected' , color: 'bg-gray-100 text-gray-500 border-gray-200' };
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
+};
+
+const bookingStatusInfo = (s: number) => {
+  if (s === 1) return { label: 'Active',    color: 'bg-green-100 text-green-700 border-green-200' };
+  if (s === 2) return { label: 'Cancelled', color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 3) return { label: 'Completed', color: 'bg-blue-100 text-blue-700 border-blue-200' };
+  return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
+};
+
+const formatDate = (d: string) => {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
 // ─── Ban Dialog ───────────────────────────────────────────────────────────────
@@ -236,7 +267,7 @@ const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, 
 export const Admin = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'overview' | 'landlords' | 'students' | 'reports'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'landlords' | 'students' | 'reports' | 'bookings'>('overview');
 
   const [stats, setStats]         = useState<DashboardStats | null>(null);
   const [landlords, setLandlords] = useState<Landlord[]>([]);
@@ -263,6 +294,12 @@ export const Admin = () => {
   const [listingReports, setListingReports]               = useState<Report[]>([]);
   const [listingReportsLoading, setListingReportsLoading] = useState(false);
   const [searchedListingId, setSearchedListingId]         = useState<string | null>(null);
+
+  // ─── All Bookings state ─────────────────────────────────────────────────────
+  const [bookings, setBookings]               = useState<BookingDto[]>([]);
+  const [bookingCount, setBookingCount]       = useState(0);
+  const [bookingStatusFilter, setBookingStatusFilter] = useState<string>('all');
+  const [bookingsLoading, setBookingsLoading] = useState(false);
 
   if (!user || user.type !== 'admin') {
     return (
@@ -298,6 +335,14 @@ export const Admin = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, reportStatus]);
 
+  // ─── Fetch all bookings (admin) ─────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (activeTab !== 'bookings') return;
+    fetchBookings();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, bookingStatusFilter]);
+
   const fetchReports = async () => {
     setReportsLoading(true);
     try {
@@ -311,6 +356,25 @@ export const Admin = () => {
       setReportCount(data.count || 0);
     } catch { /* silently fail */ }
     finally { setReportsLoading(false); }
+  };
+
+  const fetchBookings = async () => {
+    setBookingsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (bookingStatusFilter !== 'all') params.append('Status', bookingStatusFilter);
+      params.append('SortingOption', '2');
+      params.append('PageIndex', '1');
+      params.append('PageSize', '100');
+      const data = await api.get<any>(`/Booking/GetAllBookings?${params}`);
+      const list: BookingDto[] = Array.isArray(data) ? data : (data?.data || []);
+      setBookings(list);
+      setBookingCount(data?.count ?? list.length);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load bookings.');
+    } finally {
+      setBookingsLoading(false);
+    }
   };
 
   const handleLandlordSearch = async () => {
@@ -426,14 +490,15 @@ export const Admin = () => {
     { id: 'overview',  label: 'Overview',                                              icon: TrendingUp },
     { id: 'landlords', label: `Landlords (${landlords.length})`,                       icon: Home },
     { id: 'students',  label: `Students (${students.length})`,                         icon: Users },
-    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`, icon: Flag },
+    { id: 'bookings',  label: `Bookings${bookingCount > 0 ? ` (${bookingCount})` : ''}`, icon: BookOpen },
+    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`,  icon: Flag },
   ] as const;
 
   return (
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-[#34495E] mb-2">Admin Dashboard</h1>
-        <p className="text-[#717182] mb-8">Manage users, listings, and reports</p>
+        <p className="text-[#717182] mb-8">Manage users, listings, bookings, and reports</p>
 
         <div className="flex gap-1 mb-8 border-b border-gray-200 overflow-x-auto">
           {tabs.map(tab => {
@@ -715,6 +780,100 @@ export const Admin = () => {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* ════════ BOOKINGS ════════ */}
+        {activeTab === 'bookings' && (
+          <Card>
+            <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <CardTitle className="text-[#34495E] flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-[#00A5A7]" />
+                  All Bookings
+                </CardTitle>
+                <CardDescription>Every booking made on the platform</CardDescription>
+              </div>
+              <Select value={bookingStatusFilter} onValueChange={setBookingStatusFilter}>
+                <SelectTrigger className="w-40"><SelectValue placeholder="Filter" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Bookings</SelectItem>
+                  <SelectItem value="1">Active</SelectItem>
+                  <SelectItem value="2">Cancelled</SelectItem>
+                  <SelectItem value="3">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardHeader>
+            <CardContent>
+              {bookingsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}
+                </div>
+              ) : bookings.length === 0 ? (
+                <div className="text-center py-12">
+                  <BookOpen className="w-12 h-12 text-[#717182] mx-auto mb-3" />
+                  <p className="text-[#717182]">No bookings found.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {bookings.map((booking) => {
+                    const { label, color } = bookingStatusInfo(booking.status);
+                    return (
+                      <div key={booking.id} className="p-4 border rounded-lg space-y-2 hover:border-[#00A5A7]/30 transition-colors">
+                        <div className="flex items-start justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Badge className={`${color} border text-xs flex-shrink-0`}>{label}</Badge>
+                            <span className="text-sm text-[#34495E] font-medium truncate">
+                              {booking.listingTitle || `Listing #${booking.listingId}`}
+                            </span>
+                            <span className="text-xs text-[#717182]">· Booking #{booking.id}</span>
+                          </div>
+                          {booking.amount != null && (
+                            <span className="text-sm text-[#FF6F61] font-semibold flex-shrink-0">
+                              EGP {booking.amount.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
+                          {booking.studentName && (
+                            <span className="flex items-center gap-1">
+                              <User className="w-3.5 h-3.5" />
+                              Student: {booking.studentName}
+                            </span>
+                          )}
+                          {booking.landlordName && (
+                            <span className="flex items-center gap-1">
+                              <Home className="w-3.5 h-3.5" />
+                              Landlord: {booking.landlordName}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            <Bed className="w-3.5 h-3.5" />
+                            Bed #{booking.bedId}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5" />
+                            {formatDate(booking.startDate)} → {formatDate(booking.endDate)}
+                          </span>
+                          {booking.durationInMonths != null && (
+                            <span>{booking.durationInMonths} month{booking.durationInMonths !== 1 ? 's' : ''}</span>
+                          )}
+                        </div>
+
+                        <div className="pt-1">
+                          <Button variant="outline" size="sm"
+                            onClick={() => navigate(`/house/${booking.listingId}`)}
+                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
+                            View Listing
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* ════════ REPORTS ════════ */}
