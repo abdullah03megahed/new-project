@@ -47,7 +47,6 @@ interface PaginatedReports {
   pageIndex: number; pageSize: number; count: number; data: Report[];
 }
 
-// Minimal booking from list endpoint
 interface BookingSummary {
   id: number;
   startDate: string;
@@ -60,7 +59,6 @@ interface PaginatedBookings {
   pageIndex: number; pageSize: number; count: number; data: BookingSummary[];
 }
 
-// Full booking detail from GetBooking/{id}
 interface BookingDetail {
   id: number;
   startDate: string;
@@ -214,39 +212,42 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
               </Button>
 
               <AlertDialog>
-  <AlertDialogTrigger asChild>
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={cancellingId === detail.id}
-      className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white flex-1"
-    >
-      {cancellingId === detail.id ? 'Cancelling...' : 'Cancel Booking'}
-    </Button>
-  </AlertDialogTrigger>
-
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
-      <AlertDialogDescription>
-        You're about to cancel your booking for Listing #{detail.listingId} (Bed #{detail.bedId}). This cannot be undone.
-      </AlertDialogDescription>
-    </AlertDialogHeader>
-
-    <AlertDialogFooter>
-      <AlertDialogCancel>Keep Booking</AlertDialogCancel>
-      <AlertDialogAction
-        onClick={async () => {
-          await onCancel(detail.id);
-          onClose();
-        }}
-        className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
-      >
-        Yes, Cancel
-      </AlertDialogAction>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline" size="sm"
+                    disabled={cancellingId === detail.id}
+                    className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white flex-1"
+                  >
+                    {cancellingId === detail.id ? 'Cancelling...' : 'Cancel Booking'}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      You're about to cancel your booking for Listing #{detail.listingId} (Bed #{detail.bedId}). This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={async () => { await onCancel(detail.id); onClose(); }}
+                      className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
+                    >
+                      Yes, Cancel
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[#717182] text-sm text-center py-6">Failed to load booking details.</p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -268,13 +269,11 @@ export const Profile = () => {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportsCount, setReportsCount]     = useState(0);
 
-  // ─── Bookings state ────────────────────────────────────────────────────────
   const [bookings, setBookings]               = useState<BookingSummary[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [activeBookingsCount, setActiveBookingsCount] = useState(0);
   const [cancellingId, setCancellingId]       = useState<number | null>(null);
 
-  // Booking detail dialog
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
   const [detailOpen, setDetailOpen]               = useState(false);
 
@@ -327,7 +326,7 @@ export const Profile = () => {
       .finally(() => setReportsLoading(false));
   }, [activeTab, user]);
 
-  // ─── Fetch bookings (students only) ───────────────────────────────────────
+  // ─── Fetch bookings ────────────────────────────────────────────────────────
   useEffect(() => {
     if (activeTab !== 'bookings' || !user || user.type !== 'student' || !user.id) return;
     setBookingsLoading(true);
@@ -335,8 +334,6 @@ export const Profile = () => {
       .then(data => {
         const list: BookingSummary[] = data?.data || [];
         setBookings(list);
-        // We don't have status in summary list, so count will be updated when details are fetched
-        // For the badge, we'll show total bookings count
         setActiveBookingsCount(list.length);
       })
       .catch(() => toast.error('Failed to load your bookings.'))
@@ -427,7 +424,6 @@ export const Profile = () => {
     setCancellingId(bookingId);
     try {
       await api.put(`/Booking/CancelBooking/${bookingId}`, {});
-      // Remove cancelled booking from list or just refetch
       setBookings(prev => prev.filter(b => b.id !== bookingId));
       setActiveBookingsCount(prev => Math.max(0, prev - 1));
       toast.success('Booking cancelled successfully.');
@@ -452,7 +448,6 @@ export const Profile = () => {
     <div className="min-h-screen bg-[#B19CD9]/5 py-8">
       <div className="container mx-auto px-4 max-w-4xl">
 
-        {/* Booking detail dialog */}
         {selectedBookingId !== null && (
           <BookingDetailDialog
             bookingId={selectedBookingId}
@@ -903,6 +898,7 @@ export const Profile = () => {
             </CardContent>
           </Card>
         )}
+
       </div>
     </div>
   );
