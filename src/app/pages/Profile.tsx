@@ -213,45 +213,40 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
                 View Listing
               </Button>
 
-              {detail.status === 1 && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline" size="sm"
-                      disabled={cancellingId === detail.id}
-                      className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white flex-1"
-                    >
-                      {cancellingId === detail.id ? 'Cancelling...' : 'Cancel Booking'}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        You're about to cancel your booking for Listing #{detail.listingId} (Bed #{detail.bedId}). This cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Keep Booking</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={async () => { await onCancel(detail.id); onClose(); }}
-                        className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
-                      >
-                        Yes, Cancel
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
-            </div>
-          </div>
-        ) : (
-          <p className="text-[#717182] text-sm text-center py-6">Failed to load booking details.</p>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-};
+              <AlertDialog>
+  <AlertDialogTrigger asChild>
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={cancellingId === detail.id}
+      className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white flex-1"
+    >
+      {cancellingId === detail.id ? 'Cancelling...' : 'Cancel Booking'}
+    </Button>
+  </AlertDialogTrigger>
+
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+      <AlertDialogDescription>
+        You're about to cancel your booking for Listing #{detail.listingId} (Bed #{detail.bedId}). This cannot be undone.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+
+    <AlertDialogFooter>
+      <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+      <AlertDialogAction
+        onClick={async () => {
+          await onCancel(detail.id);
+          onClose();
+        }}
+        className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
+      >
+        Yes, Cancel
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
