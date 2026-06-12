@@ -5,7 +5,10 @@ import { api } from '../utils/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { Plus, Edit, Trash2, MapPin, Home, Bed, DollarSign, AlertCircle, Crown } from 'lucide-react';
+import {
+  Plus, Edit, Trash2, MapPin, Home, Bed, DollarSign,
+  AlertCircle, Crown, BookOpen, User, Calendar,
+} from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -34,6 +37,23 @@ interface SubscriptionDto {
   landlordName: string;
 }
 
+interface BookingDto {
+  id: number;
+  studentId: number;
+  studentName?: string;
+  landlordId?: number;
+  listingId: number;
+  listingTitle?: string;
+  bedId: number;
+  startDate: string;
+  endDate: string;
+  status: number; // 1=Active, 2=Cancelled, 3=Completed
+  amount?: number;
+  durationInMonths?: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 
 const prefixImage = (img: string) => {
@@ -48,14 +68,33 @@ const PLAN_STYLES: Record<string, { color: string; bg: string; label: string }> 
   professional: { color: '#FFC759', bg: 'rgba(255,199,89,0.12)',  label: 'Professional' },
 };
 
+const bookingStatusLabel = (s: number) => {
+  if (s === 1) return { label: 'Active',    color: 'bg-green-100 text-green-700 border-green-200' };
+  if (s === 2) return { label: 'Cancelled', color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 3) return { label: 'Completed', color: 'bg-blue-100 text-blue-700 border-blue-200' };
+  return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
+};
+
+const formatDate = (d: string) => {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const Dashboard = () => {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [listings, setListings]       = useState<Listing[]>([]);
-  const [loading, setLoading]         = useState(true);
+
+  const [activeTab, setActiveTab]       = useState<'properties' | 'bookings'>('properties');
+  const [listings, setListings]         = useState<Listing[]>([]);
+  const [loading, setLoading]           = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionDto | null>(null);
+
+  // ─── Bookings state ────────────────────────────────────────────────────────
+  const [bookings, setBookings]               = useState<BookingDto[]>([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [bookingsFetched, setBookingsFetched] = useState(false);
 
   // Wait for auth to rehydrate before checking user type
   if (authLoading) {
@@ -94,6 +133,21 @@ export const Dashboard = () => {
     fetchAll();
   }, []);
 
+  // ─── Fetch landlord bookings (lazy — only on tab open) ─────────────────────
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (activeTab !== 'bookings' || bookingsFetched || !user?.id) return;
+    setBookingsLoading(true);
+    api.get<any>(`/Booking/GetLandLordBookings/${user.id}`)
+      .then(data => {
+        const list: BookingDto[] = Array.isArray(data) ? data : (data?.data || []);
+        setBookings(list);
+        setBookingsFetched(true);
+      })
+      .catch(() => toast.error('Failed to load bookings.'))
+      .finally(() => setBookingsLoading(false));
+  }, [activeTab, bookingsFetched, user?.id]);
+
   const handleDelete = async (listingId: number) => {
     try {
       await api.delete(`/Listing/${listingId}`);
@@ -113,14 +167,15 @@ export const Dashboard = () => {
     navigate('/add-house');
   };
 
-  const allBeds           = listings.flatMap(l => l.rooms.flatMap(r => r.beds));
+  const allBeds            = listings.flatMap(l => l.rooms.flatMap(r => r.beds));
   const totalAvailableBeds = allBeds.filter(b => !b.isBooked).length;
-  const totalBookedBeds   = allBeds.filter(b => b.isBooked).length;
-  const allPrices         = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
-  const lowestPrice       = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+  const totalBookedBeds    = allBeds.filter(b => b.isBooked).length;
+  const allPrices          = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
+  const lowestPrice        = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+  const activeBookings     = bookings.filter(b => b.status === 1).length;
 
-  const planKey    = subscription?.planName?.toLowerCase() ?? 'freemium';
-  const planStyle  = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
+  const planKey   = subscription?.planName?.toLowerCase() ?? 'freemium';
+  const planStyle = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
   const isPaidPlan = planKey !== 'freemium';
 
   return (
@@ -154,9 +209,8 @@ export const Dashboard = () => {
             <p className="text-[#717182]">Manage your property listings</p>
           </div>
 
-          {/* Header actions */}
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Subscription badge + button */}
+            {/* Subscription badge */}
             <div
               className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium cursor-pointer transition-opacity hover:opacity-80"
               style={{ borderColor: planStyle.color, background: planStyle.bg, color: planStyle.color }}
@@ -172,8 +226,7 @@ export const Dashboard = () => {
 
             <Button
               onClick={() => navigate('/subscription')}
-              variant="outline"
-              size="sm"
+              variant="outline" size="sm"
               className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white hidden sm:flex"
             >
               <Crown className="w-4 h-4 mr-2" />
@@ -189,7 +242,7 @@ export const Dashboard = () => {
           </div>
         </div>
 
-        {/* Subscription upgrade nudge — only for freemium */}
+        {/* Freemium upgrade nudge */}
         {!loading && !isPaidPlan && listings.length > 0 && (
           <div
             className="mb-6 p-4 bg-[#00A5A7]/8 border border-[#00A5A7]/25 rounded-lg flex flex-col sm:flex-row items-start sm:items-center gap-3 cursor-pointer hover:border-[#00A5A7]/50 transition-colors"
@@ -215,7 +268,7 @@ export const Dashboard = () => {
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-[#717182] text-sm">Total Listings</CardTitle>
@@ -261,139 +314,262 @@ export const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Listings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-[#34495E]">Your Properties</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />
-                ))}
-              </div>
-            ) : listings.length === 0 ? (
-              <div className="text-center py-12">
-                <Home className="w-16 h-16 text-[#717182] mx-auto mb-4" />
-                <p className="text-[#717182] mb-4">No properties listed yet</p>
-                {profileIncomplete ? (
-                  <Button
-                    onClick={() => navigate('/complete-profile')}
-                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white"
-                  >
-                    Complete Profile First
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() => navigate('/add-house')}
-                    className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white"
-                  >
-                    Add Your First Property
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {listings.map((listing) => {
-                  const availBeds  = listing.rooms.flatMap(r => r.beds).filter(b => !b.isBooked).length;
-                  const totalBeds  = listing.rooms.flatMap(r => r.beds).length;
-                  const coverImage = listing.listingImages[0]
-                    ? prefixImage(listing.listingImages[0])
-                    : null;
+        {/* ── Tabs ── */}
+        <div className="flex gap-1 mb-6 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('properties')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'properties'
+                ? 'border-[#00A5A7] text-[#00A5A7]'
+                : 'border-transparent text-[#717182] hover:text-[#34495E]'
+            }`}
+          >
+            <Home className="w-4 h-4 inline mr-2" />
+            Your Properties
+          </button>
+          <button
+            onClick={() => setActiveTab('bookings')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'bookings'
+                ? 'border-[#00A5A7] text-[#00A5A7]'
+                : 'border-transparent text-[#717182] hover:text-[#34495E]'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            Bookings
+            {activeBookings > 0 && (
+              <span className="bg-[#00A5A7] text-white text-xs px-1.5 py-0.5 rounded-full">
+                {activeBookings}
+              </span>
+            )}
+          </button>
+        </div>
 
-                  return (
-                    <div
-                      key={listing.id}
-                      className="flex flex-col md:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7]/40 transition-colors"
+        {/* ══ PROPERTIES TAB ══ */}
+        {activeTab === 'properties' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-[#34495E]">Your Properties</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : listings.length === 0 ? (
+                <div className="text-center py-12">
+                  <Home className="w-16 h-16 text-[#717182] mx-auto mb-4" />
+                  <p className="text-[#717182] mb-4">No properties listed yet</p>
+                  {profileIncomplete ? (
+                    <Button
+                      onClick={() => navigate('/complete-profile')}
+                      className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white"
                     >
-                      {/* Cover image */}
-                      {coverImage ? (
-                        <img
-                          src={coverImage}
-                          alt={listing.title}
-                          className="w-full md:w-48 h-32 object-cover rounded-lg flex-shrink-0"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      ) : (
-                        <div className="w-full md:w-48 h-32 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <Home className="w-8 h-8 text-gray-300" />
-                        </div>
-                      )}
+                      Complete Profile First
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => navigate('/add-house')}
+                      className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white"
+                    >
+                      Add Your First Property
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {listings.map((listing) => {
+                    const availBeds  = listing.rooms.flatMap(r => r.beds).filter(b => !b.isBooked).length;
+                    const totalBeds  = listing.rooms.flatMap(r => r.beds).length;
+                    const coverImage = listing.listingImages[0]
+                      ? prefixImage(listing.listingImages[0])
+                      : null;
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between mb-2 gap-2">
-                          <div className="min-w-0">
-                            <h3
-                              className="text-[#34495E] font-medium mb-1 hover:text-[#00A5A7] cursor-pointer truncate"
-                              onClick={() => navigate(`/house/${listing.id}`)}
-                            >
-                              {listing.title}
-                            </h3>
-                            <div className="flex items-center gap-2 text-[#717182] text-sm">
-                              <MapPin className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate">{listing.address}, {listing.city}</span>
-                            </div>
+                    return (
+                      <div
+                        key={listing.id}
+                        className="flex flex-col md:flex-row gap-4 p-4 border rounded-lg hover:border-[#00A5A7]/40 transition-colors"
+                      >
+                        {coverImage ? (
+                          <img
+                            src={coverImage}
+                            alt={listing.title}
+                            className="w-full md:w-48 h-32 object-cover rounded-lg flex-shrink-0"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="w-full md:w-48 h-32 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <Home className="w-8 h-8 text-gray-300" />
                           </div>
-                          <Badge className={`flex-shrink-0 ${listing.status === 1
-                            ? 'bg-[#B8E986] text-[#34495E] border-0'
-                            : 'bg-gray-100 text-gray-500 border-0'}`}>
-                            {listing.status === 1 ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </div>
+                        )}
 
-                        <div className="flex items-center gap-4 mb-3 flex-wrap text-sm text-[#717182]">
-                          <span>{availBeds}/{totalBeds} beds available</span>
-                          {listing.furnished && <Badge variant="outline" className="text-xs">Furnished</Badge>}
-                          {listing.wifiAvailable && <Badge variant="outline" className="text-xs">WiFi</Badge>}
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={(e) => { e.stopPropagation(); navigate(`/add-house?edit=${listing.id}`); }}
-                            variant="outline" size="sm"
-                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
-                          >
-                            <Edit className="w-4 h-4 mr-2" />Edit
-                          </Button>
-
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                onClick={(e) => e.stopPropagation()}
-                                variant="outline" size="sm"
-                                className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white"
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between mb-2 gap-2">
+                            <div className="min-w-0">
+                              <h3
+                                className="text-[#34495E] font-medium mb-1 hover:text-[#00A5A7] cursor-pointer truncate"
+                                onClick={() => navigate(`/house/${listing.id}`)}
                               >
-                                <Trash2 className="w-4 h-4 mr-2" />Delete
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This will permanently delete "{listing.title}" and cannot be undone.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={(e) => { e.stopPropagation(); handleDelete(listing.id); }}
-                                  className="bg-[#FF6F61] hover:bg-[#FF6F61]/90"
+                                {listing.title}
+                              </h3>
+                              <div className="flex items-center gap-2 text-[#717182] text-sm">
+                                <MapPin className="w-4 h-4 flex-shrink-0" />
+                                <span className="truncate">{listing.address}, {listing.city}</span>
+                              </div>
+                            </div>
+                            <Badge className={`flex-shrink-0 ${listing.status === 1
+                              ? 'bg-[#B8E986] text-[#34495E] border-0'
+                              : 'bg-gray-100 text-gray-500 border-0'}`}>
+                              {listing.status === 1 ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </div>
+
+                          <div className="flex items-center gap-4 mb-3 flex-wrap text-sm text-[#717182]">
+                            <span>{availBeds}/{totalBeds} beds available</span>
+                            {listing.furnished && <Badge variant="outline" className="text-xs">Furnished</Badge>}
+                            {listing.wifiAvailable && <Badge variant="outline" className="text-xs">WiFi</Badge>}
+                          </div>
+
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={(e) => { e.stopPropagation(); navigate(`/add-house?edit=${listing.id}`); }}
+                              variant="outline" size="sm"
+                              className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
+                            >
+                              <Edit className="w-4 h-4 mr-2" />Edit
+                            </Button>
+
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  onClick={(e) => e.stopPropagation()}
+                                  variant="outline" size="sm"
+                                  className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white"
                                 >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                                  <Trash2 className="w-4 h-4 mr-2" />Delete
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will permanently delete "{listing.title}" and cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(listing.id); }}
+                                    className="bg-[#FF6F61] hover:bg-[#FF6F61]/90"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ══ BOOKINGS TAB ══ */}
+        {activeTab === 'bookings' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-[#34495E] flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-[#00A5A7]" />
+                Property Bookings
+                {!bookingsLoading && bookings.length > 0 && (
+                  <span className="text-sm text-[#717182] font-normal">
+                    ({bookings.length} total · {activeBookings} active)
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {bookingsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : bookings.length === 0 ? (
+                <div className="text-center py-12">
+                  <BookOpen className="w-12 h-12 text-[#717182] mx-auto mb-3" />
+                  <p className="text-[#717182]">No bookings yet for your properties.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {bookings.map((booking) => {
+                    const { label, color } = bookingStatusLabel(booking.status);
+                    // Find which listing this booking belongs to
+                    const relatedListing = listings.find(l => l.id === booking.listingId);
+
+                    return (
+                      <div
+                        key={booking.id}
+                        className="p-4 border rounded-lg space-y-2 hover:border-[#00A5A7]/30 transition-colors"
+                      >
+                        <div className="flex items-start justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Badge className={`${color} border text-xs flex-shrink-0`}>{label}</Badge>
+                            <span className="text-sm text-[#34495E] font-medium truncate">
+                              {booking.listingTitle || relatedListing?.title || `Listing #${booking.listingId}`}
+                            </span>
+                          </div>
+                          {booking.amount != null && (
+                            <span className="text-sm text-[#FF6F61] font-semibold flex-shrink-0">
+                              EGP {booking.amount.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
+                          {booking.studentName && (
+                            <span className="flex items-center gap-1">
+                              <User className="w-3.5 h-3.5" />
+                              {booking.studentName}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            <Bed className="w-3.5 h-3.5" />
+                            Bed #{booking.bedId}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5" />
+                            {formatDate(booking.startDate)} → {formatDate(booking.endDate)}
+                          </span>
+                          {booking.durationInMonths != null && (
+                            <span>{booking.durationInMonths} month{booking.durationInMonths !== 1 ? 's' : ''}</span>
+                          )}
+                        </div>
+
+                        <div className="pt-1">
+                          <Button
+                            variant="outline" size="sm"
+                            onClick={() => navigate(`/house/${booking.listingId}`)}
+                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
+                          >
+                            View Listing
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
       </div>
     </div>
   );
