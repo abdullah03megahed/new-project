@@ -5,9 +5,10 @@ import { api } from '../utils/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import {
   Plus, Edit, Trash2, MapPin, Home, Bed, DollarSign,
-  AlertCircle, Crown, BookOpen, User, Calendar,
+  AlertCircle, Crown, BookOpen, User, Calendar, Building2,
 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -37,19 +38,37 @@ interface SubscriptionDto {
   landlordName: string;
 }
 
-interface BookingDto {
+// Minimal booking from list endpoint (paginated)
+interface BookingSummary {
   id: number;
-  studentId: number;
-  studentName?: string;
-  landlordId?: number;
-  listingId: number;
-  listingTitle?: string;
-  bedId: number;
   startDate: string;
   endDate: string;
-  status: number; // 1=Active, 2=Cancelled, 3=Completed
-  amount?: number;
-  durationInMonths?: number;
+  listingId: number;
+  bedId: number;
+}
+
+interface PaginatedBookings {
+  pageIndex: number;
+  pageSize: number;
+  count: number;
+  data: BookingSummary[];
+}
+
+// Full booking detail from GetBooking/{id}
+interface BookingDetail {
+  id: number;
+  startDate: string;
+  endDate: string;
+  status: number;
+  studentId: number;
+  bedId: number;
+  listingId: number;
+  landLordId: number;
+  studentName: string;
+  roomId: number;
+  landlordName: string;
+  amount: number;
+  type: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,9 +94,132 @@ const bookingStatusLabel = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
+const bookingTypeLabel = (t: number) => {
+  if (t === 1) return 'Single Bed';
+  if (t === 2) return 'Entire Room';
+  return '—';
+};
+
 const formatDate = (d: string) => {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+// ─── Booking Detail Dialog ────────────────────────────────────────────────────
+
+interface BookingDetailDialogProps {
+  bookingId: number | null;
+  open: boolean;
+  onClose: () => void;
+  relatedListings: Listing[];
+}
+
+const BookingDetailDialog = ({ bookingId, open, onClose, relatedListings }: BookingDetailDialogProps) => {
+  const navigate = useNavigate();
+  const [detail, setDetail] = useState<BookingDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !bookingId) { setDetail(null); return; }
+    setLoading(true);
+    api.get<BookingDetail>(`/Booking/GetBooking/${bookingId}`)
+      .then(data => setDetail(data))
+      .catch(() => toast.error('Failed to load booking details.'))
+      .finally(() => setLoading(false));
+  }, [open, bookingId]);
+
+  const relatedListing = detail
+    ? relatedListings.find(l => l.id === detail.listingId)
+    : null;
+
+  const { label, color } = detail ? bookingStatusLabel(detail.status) : { label: '', color: '' };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-[#34495E]">Booking Details</DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="space-y-3 py-4">
+            {[1, 2, 3, 4].map(i => <div key={i} className="h-8 bg-gray-100 rounded animate-pulse" />)}
+          </div>
+        ) : detail ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Badge className={`${color} border text-xs`}>{label}</Badge>
+              <span className="text-xs text-[#717182]">Booking #{detail.id}</span>
+            </div>
+
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <Building2 className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs text-[#717182]">Listing</p>
+                  <p className="text-[#34495E] font-medium truncate">
+                    {relatedListing?.title || `Listing #${detail.listingId}`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <Bed className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-[#717182]">Bed / Type</p>
+                  <p className="text-[#34495E] font-medium">
+                    Bed #{detail.bedId} · {bookingTypeLabel(detail.type)}
+                  </p>
+                </div>
+              </div>
+
+              {detail.studentName && (
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                  <User className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-[#717182]">Student</p>
+                    <p className="text-[#34495E] font-medium">{detail.studentName}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <Calendar className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-[#717182]">Duration</p>
+                  <p className="text-[#34495E] font-medium">
+                    {formatDate(detail.startDate)} → {formatDate(detail.endDate)}
+                  </p>
+                </div>
+              </div>
+
+              {detail.amount > 0 && (
+                <div className="flex items-center gap-3 p-3 bg-[#FF6F61]/5 rounded-lg border border-[#FF6F61]/20">
+                  <DollarSign className="w-4 h-4 text-[#FF6F61] flex-shrink-0" />
+                  <div>
+                    <p className="text-xs text-[#717182]">Total Amount</p>
+                    <p className="text-[#FF6F61] font-semibold text-base">
+                      EGP {detail.amount.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={() => { onClose(); navigate(`/house/${detail.listingId}`); }}
+              className="w-full border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
+            >
+              View Listing
+            </Button>
+          </div>
+        ) : (
+          <p className="text-[#717182] text-sm text-center py-6">Failed to load booking details.</p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -92,11 +234,16 @@ export const Dashboard = () => {
   const [subscription, setSubscription] = useState<SubscriptionDto | null>(null);
 
   // ─── Bookings state ────────────────────────────────────────────────────────
-  const [bookings, setBookings]               = useState<BookingDto[]>([]);
+  const [bookings, setBookings]               = useState<BookingSummary[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [bookingsFetched, setBookingsFetched] = useState(false);
+  const [totalBookings, setTotalBookings]     = useState(0);
 
-  // Wait for auth to rehydrate before checking user type
+  // Booking detail dialog
+  const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
+  const [detailOpen, setDetailOpen]               = useState(false);
+
+  // Wait for auth to rehydrate
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -138,10 +285,11 @@ export const Dashboard = () => {
   useEffect(() => {
     if (activeTab !== 'bookings' || bookingsFetched || !user?.id) return;
     setBookingsLoading(true);
-    api.get<any>(`/Booking/GetLandLordBookings/${user.id}`)
+    api.get<PaginatedBookings>(`/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=100`)
       .then(data => {
-        const list: BookingDto[] = Array.isArray(data) ? data : (data?.data || []);
+        const list: BookingSummary[] = data?.data || [];
         setBookings(list);
+        setTotalBookings(data?.count ?? list.length);
         setBookingsFetched(true);
       })
       .catch(() => toast.error('Failed to load bookings.'))
@@ -167,20 +315,32 @@ export const Dashboard = () => {
     navigate('/add-house');
   };
 
+  const openDetail = (bookingId: number) => {
+    setSelectedBookingId(bookingId);
+    setDetailOpen(true);
+  };
+
   const allBeds            = listings.flatMap(l => l.rooms.flatMap(r => r.beds));
   const totalAvailableBeds = allBeds.filter(b => !b.isBooked).length;
   const totalBookedBeds    = allBeds.filter(b => b.isBooked).length;
   const allPrices          = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
   const lowestPrice        = allPrices.length > 0 ? Math.min(...allPrices) : 0;
-  const activeBookings     = bookings.filter(b => b.status === 1).length;
 
-  const planKey   = subscription?.planName?.toLowerCase() ?? 'freemium';
-  const planStyle = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
+  const planKey    = subscription?.planName?.toLowerCase() ?? 'freemium';
+  const planStyle  = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
   const isPaidPlan = planKey !== 'freemium';
 
   return (
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
+
+        {/* Booking detail dialog */}
+        <BookingDetailDialog
+          bookingId={selectedBookingId}
+          open={detailOpen}
+          onClose={() => { setDetailOpen(false); setSelectedBookingId(null); }}
+          relatedListings={listings}
+        />
 
         {/* Profile incomplete banner */}
         {profileIncomplete && (
@@ -292,13 +452,17 @@ export const Dashboard = () => {
               <div className="text-[#34495E] text-3xl font-bold">{totalAvailableBeds}</div>
             </CardContent>
           </Card>
-          <Card>
+          <Card
+            className="cursor-pointer hover:border-[#00A5A7] hover:shadow-md transition-all"
+            onClick={() => setActiveTab('bookings')}
+          >
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-[#717182] text-sm">Booked Beds</CardTitle>
               <Bed className="w-5 h-5 text-[#FF6F61]" />
             </CardHeader>
             <CardContent>
               <div className="text-[#34495E] text-3xl font-bold">{totalBookedBeds}</div>
+              <p className="text-[#00A5A7] text-xs mt-1">Click to view bookings →</p>
             </CardContent>
           </Card>
           <Card>
@@ -337,9 +501,9 @@ export const Dashboard = () => {
           >
             <BookOpen className="w-4 h-4" />
             Bookings
-            {activeBookings > 0 && (
+            {totalBookings > 0 && (
               <span className="bg-[#00A5A7] text-white text-xs px-1.5 py-0.5 rounded-full">
-                {activeBookings}
+                {totalBookings}
               </span>
             )}
           </button>
@@ -489,7 +653,7 @@ export const Dashboard = () => {
                 Property Bookings
                 {!bookingsLoading && bookings.length > 0 && (
                   <span className="text-sm text-[#717182] font-normal">
-                    ({bookings.length} total · {activeBookings} active)
+                    ({bookings.length} shown{totalBookings > bookings.length ? ` of ${totalBookings}` : ''})
                   </span>
                 )}
               </CardTitle>
@@ -509,36 +673,29 @@ export const Dashboard = () => {
               ) : (
                 <div className="space-y-3">
                   {bookings.map((booking) => {
-                    const { label, color } = bookingStatusLabel(booking.status);
-                    // Find which listing this booking belongs to
                     const relatedListing = listings.find(l => l.id === booking.listingId);
 
                     return (
                       <div
                         key={booking.id}
-                        className="p-4 border rounded-lg space-y-2 hover:border-[#00A5A7]/30 transition-colors"
+                        className="p-4 border rounded-lg space-y-2 hover:border-[#00A5A7]/40 transition-colors cursor-pointer"
+                        onClick={() => openDetail(booking.id)}
                       >
                         <div className="flex items-start justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <Badge className={`${color} border text-xs flex-shrink-0`}>{label}</Badge>
                             <span className="text-sm text-[#34495E] font-medium truncate">
-                              {booking.listingTitle || relatedListing?.title || `Listing #${booking.listingId}`}
+                              {relatedListing?.title || `Listing #${booking.listingId}`}
+                            </span>
+                            <span className="text-xs text-[#717182] flex-shrink-0">
+                              · Booking #{booking.id}
                             </span>
                           </div>
-                          {booking.amount != null && (
-                            <span className="text-sm text-[#FF6F61] font-semibold flex-shrink-0">
-                              EGP {booking.amount.toLocaleString()}
-                            </span>
-                          )}
+                          <span className="text-xs text-[#00A5A7] font-medium flex-shrink-0">
+                            View Details →
+                          </span>
                         </div>
 
                         <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
-                          {booking.studentName && (
-                            <span className="flex items-center gap-1">
-                              <User className="w-3.5 h-3.5" />
-                              {booking.studentName}
-                            </span>
-                          )}
                           <span className="flex items-center gap-1">
                             <Bed className="w-3.5 h-3.5" />
                             Bed #{booking.bedId}
@@ -547,19 +704,6 @@ export const Dashboard = () => {
                             <Calendar className="w-3.5 h-3.5" />
                             {formatDate(booking.startDate)} → {formatDate(booking.endDate)}
                           </span>
-                          {booking.durationInMonths != null && (
-                            <span>{booking.durationInMonths} month{booking.durationInMonths !== 1 ? 's' : ''}</span>
-                          )}
-                        </div>
-
-                        <div className="pt-1">
-                          <Button
-                            variant="outline" size="sm"
-                            onClick={() => navigate(`/house/${booking.listingId}`)}
-                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
-                          >
-                            View Listing
-                          </Button>
                         </div>
                       </div>
                     );
