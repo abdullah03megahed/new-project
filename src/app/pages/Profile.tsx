@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback } from '../components/ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
 import { Badge } from '../components/ui/badge';
-import { Edit2, Save, X, Users, Moon, MapPin, GraduationCap, DollarSign, Flag, Bed } from 'lucide-react';
+import { Edit2, Save, X, Users, Moon, MapPin, GraduationCap, DollarSign, Flag, Bed, ShieldCheck } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -103,9 +103,14 @@ export const Profile = () => {
   const [bookingsCount, setBookingsCount]     = useState(0);
   const [cancellingId, setCancellingId]       = useState<number | null>(null);
 
-  // ─── Fetch profile ─────────────────────────────────────────────────────────
+  // ─── Fetch profile (skip entirely for admin) ───────────────────────────────
   useEffect(() => {
     if (!user) return;
+
+    if (user.type === 'admin') {
+      setLoading(false);
+      return;
+    }
 
     const fetchProfile = async () => {
       try {
@@ -141,9 +146,9 @@ export const Profile = () => {
     fetchProfile();
   }, [user?.id, user?.email, user?.type]);
 
-  // ─── Fetch reports ─────────────────────────────────────────────────────────
+  // ─── Fetch reports (students & landlords only) ─────────────────────────────
   useEffect(() => {
-    if (activeTab !== 'reports' || !user) return;
+    if (activeTab !== 'reports' || !user || user.type === 'admin') return;
     setReportsLoading(true);
     api.get<PaginatedReports>('/Report/GetUserReports?SortingOption=2&PageIndex=1&PageSize=20')
       .then(data => { setReports(data.data || []); setReportsCount(data.count || 0); })
@@ -181,6 +186,36 @@ export const Profile = () => {
     );
   }
 
+  // ─── Admin: simple standalone view (no profile/reports/bookings tabs) ──────
+  if (user.type === 'admin') {
+    return (
+      <div className="min-h-screen bg-[#B19CD9]/5 py-8">
+        <div className="container mx-auto px-4 max-w-2xl">
+          <Card>
+            <CardContent className="p-8 text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-[#00A5A7]/10 rounded-full flex items-center justify-center">
+                <ShieldCheck className="w-8 h-8 text-[#00A5A7]" />
+              </div>
+              <div>
+                <p className="text-[#34495E] font-semibold text-lg">{user.email}</p>
+                <span className="inline-block mt-1 px-3 py-1 bg-[#00A5A7]/10 rounded-full text-[#00A5A7] text-sm capitalize">
+                  Admin
+                </span>
+              </div>
+              <p className="text-[#717182] text-sm">
+                Admin accounts don't have an editable profile. Use the Admin Dashboard to manage
+                users, listings, bookings, and reports.
+              </p>
+              <Button onClick={() => navigate('/admin')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
+                Go to Admin Dashboard
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   // ─── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
@@ -214,7 +249,7 @@ export const Profile = () => {
     setIsEditing(false);
   };
 
-  // ─── Cancel booking ────────────────────────────────────────────────────────
+  // ─── Cancel / Unbook booking ────────────────────────────────────────────────
   const handleCancelBooking = async (bookingId: number) => {
     setCancellingId(bookingId);
     try {
@@ -618,7 +653,7 @@ export const Profile = () => {
                             View Listing
                           </Button>
 
-                          {/* ── Cancel booking with proper AlertDialog ── */}
+                          {/* ── Unbook / Cancel booking ── */}
                           {booking.status === 1 && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -627,7 +662,7 @@ export const Profile = () => {
                                   disabled={cancellingId === booking.id}
                                   className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white"
                                 >
-                                  {cancellingId === booking.id ? 'Cancelling...' : 'Cancel Booking'}
+                                  {cancellingId === booking.id ? 'Cancelling...' : 'Unbook'}
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
@@ -645,7 +680,7 @@ export const Profile = () => {
                                     onClick={() => handleCancelBooking(booking.id)}
                                     className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
                                   >
-                                    Yes, Cancel
+                                    Yes, Unbook
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
