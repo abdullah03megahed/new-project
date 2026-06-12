@@ -10,6 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../components/ui/checkbox';
 import { Badge } from '../components/ui/badge';
 import { Edit2, Save, X, Users, Moon, MapPin, GraduationCap, DollarSign, Flag, Bed } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '../components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router';
 
@@ -88,17 +93,17 @@ export const Profile = () => {
   const [studentForm, setStudentForm] = useState<StudentProfile | null>(null);
   const [landlordForm, setLandlordForm] = useState<LandlordProfile | null>(null);
 
-  const [reports, setReports]             = useState<Report[]>([]);
+  const [reports, setReports]               = useState<Report[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [reportsCount, setReportsCount]   = useState(0);
+  const [reportsCount, setReportsCount]     = useState(0);
 
-  // ─── Bookings state ────────────────────────────────────────────────────
-  const [bookings, setBookings]             = useState<BookingDto[]>([]);
+  // ─── Bookings state ────────────────────────────────────────────────────────
+  const [bookings, setBookings]               = useState<BookingDto[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
-  const [bookingsCount, setBookingsCount]   = useState(0);
-  const [cancellingId, setCancellingId]     = useState<number | null>(null);
+  const [bookingsCount, setBookingsCount]     = useState(0);
+  const [cancellingId, setCancellingId]       = useState<number | null>(null);
 
-  // ─── Fetch profile ────────────────────────────────────────────────────────
+  // ─── Fetch profile ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
 
@@ -106,30 +111,22 @@ export const Profile = () => {
       try {
         if (user.type === 'student') {
           let data: StudentProfile;
-
-          // BUG FIX: user.id may be '' if user logged in before AuthContext was updated.
-          // Fall back to email-based lookup which always works.
           if (user.id) {
             data = await api.get<StudentProfile>(`/Student/${user.id}`);
           } else {
             data = await api.get<StudentProfile>(`/Student/Email?email=${encodeURIComponent(user.email)}`);
-            // Patch user object so future calls use the real id
             if (data?.id) updateUser({ id: String(data.id) });
           }
-
           setStudentData(data);
           setStudentForm(data);
-
         } else if (user.type === 'landlord') {
           let data: LandlordProfile;
-
           if (user.id) {
             data = await api.get<LandlordProfile>(`/LandLord/${user.id}`);
           } else {
             data = await api.get<LandlordProfile>(`/LandLord/Email?email=${encodeURIComponent(user.email)}`);
             if (data?.id) updateUser({ id: String(data.id) });
           }
-
           setLandlordData(data);
           setLandlordForm(data);
         }
@@ -144,7 +141,7 @@ export const Profile = () => {
     fetchProfile();
   }, [user?.id, user?.email, user?.type]);
 
-  // ─── Fetch reports ────────────────────────────────────────────────────────
+  // ─── Fetch reports ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (activeTab !== 'reports' || !user) return;
     setReportsLoading(true);
@@ -184,7 +181,7 @@ export const Profile = () => {
     );
   }
 
-  // ─── Save ─────────────────────────────────────────────────────────────────
+  // ─── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -211,15 +208,14 @@ export const Profile = () => {
     }
   };
 
-  const handleCancel = () => {
+  const handleCancelEdit = () => {
     setStudentForm(studentData);
     setLandlordForm(landlordData);
     setIsEditing(false);
   };
 
-  // ─── Cancel booking ─────────────────────────────────────────────────────
+  // ─── Cancel booking ────────────────────────────────────────────────────────
   const handleCancelBooking = async (bookingId: number) => {
-    if (!confirm('Cancel this booking? This cannot be undone.')) return;
     setCancellingId(bookingId);
     try {
       await api.put(`/Booking/CancelBooking/${bookingId}`, {});
@@ -237,7 +233,7 @@ export const Profile = () => {
     ? `${studentData?.firstName ?? ''} ${studentData?.lastName ?? ''}`
     : `${landlordData?.firstName ?? ''} ${landlordData?.lastName ?? ''}`;
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#B19CD9]/5 py-8">
       <div className="container mx-auto px-4 max-w-4xl">
@@ -288,7 +284,7 @@ export const Profile = () => {
                     <Button onClick={handleSave} disabled={saving} className="bg-[#B8E986] hover:bg-[#B8E986]/90 text-[#34495E]">
                       <Save className="w-4 h-4 mr-2" />{saving ? 'Saving...' : 'Save'}
                     </Button>
-                    <Button onClick={handleCancel} variant="outline" disabled={saving}>
+                    <Button onClick={handleCancelEdit} variant="outline" disabled={saving}>
                       <X className="w-4 h-4 mr-2" />Cancel
                     </Button>
                   </div>
@@ -580,7 +576,9 @@ export const Profile = () => {
             </CardHeader>
             <CardContent>
               {bookingsLoading ? (
-                <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}</div>
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}
+                </div>
               ) : bookings.length === 0 ? (
                 <div className="text-center py-12">
                   <Bed className="w-12 h-12 text-[#717182] mx-auto mb-3" />
@@ -612,17 +610,46 @@ export const Profile = () => {
                           Bed #{booking.bedId} · {booking.startDate} → {booking.endDate}
                         </p>
                         <div className="flex gap-2 pt-1">
-                          <Button variant="outline" size="sm"
+                          <Button
+                            variant="outline" size="sm"
                             onClick={() => navigate(`/house/${booking.listingId}`)}
-                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
+                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
+                          >
                             View Listing
                           </Button>
+
+                          {/* ── Cancel booking with proper AlertDialog ── */}
                           {booking.status === 1 && (
-                            <Button variant="outline" size="sm" disabled={cancellingId === booking.id}
-                              onClick={() => handleCancelBooking(booking.id)}
-                              className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
-                              {cancellingId === booking.id ? 'Cancelling...' : 'Cancel Booking'}
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="outline" size="sm"
+                                  disabled={cancellingId === booking.id}
+                                  className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white"
+                                >
+                                  {cancellingId === booking.id ? 'Cancelling...' : 'Cancel Booking'}
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    You're about to cancel your booking for{' '}
+                                    <strong>{booking.listingTitle || `Listing #${booking.listingId}`}</strong>{' '}
+                                    (Bed #{booking.bedId}). This cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleCancelBooking(booking.id)}
+                                    className="bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
+                                  >
+                                    Yes, Cancel
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           )}
                         </div>
                       </div>
@@ -648,7 +675,9 @@ export const Profile = () => {
             </CardHeader>
             <CardContent>
               {reportsLoading ? (
-                <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 bg-gray-100 rounded-lg animate-pulse" />)}</div>
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => <div key={i} className="h-20 bg-gray-100 rounded-lg animate-pulse" />)}
+                </div>
               ) : reports.length === 0 ? (
                 <div className="text-center py-12">
                   <Flag className="w-12 h-12 text-[#717182] mx-auto mb-3" />
@@ -663,11 +692,15 @@ export const Profile = () => {
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <Badge className={`${color} border text-xs`}>{label}</Badge>
                           <span className="text-xs text-[#717182]">
-                            {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            {new Date(report.createdAt).toLocaleDateString('en-GB', {
+                              day: '2-digit', month: 'short', year: 'numeric',
+                            })}
                           </span>
                         </div>
                         <p className="text-sm text-[#34495E]">{report.reason}</p>
-                        <p className="text-xs text-[#717182]">Type: {report.type === 1 ? 'Listing Report' : 'User Report'}</p>
+                        <p className="text-xs text-[#717182]">
+                          Type: {report.type === 1 ? 'Listing Report' : 'User Report'}
+                        </p>
                       </div>
                     );
                   })}
