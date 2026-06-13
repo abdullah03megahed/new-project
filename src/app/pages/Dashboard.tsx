@@ -33,9 +33,28 @@ interface Listing {
   canViewContact: boolean; landlordPhoneNumber: string | null; exactAddress: string | null;
 }
 
+interface LandlordProfile {
+  id: number; firstName: string; lastName: string;
+  email: string; phoneNumber: string; nationalId: string;
+  homeTown: string; birthDate: string; accountId: string;
+}
+
 interface SubscriptionDto {
   planName: string; maxListings: number; price: number;
   landlordId: number; landlordName: string;
+}
+
+// Minimal summary returned by GetLandLordBookings list endpoint
+interface BookingSummary {
+  id: number;
+  startDate: string;
+  endDate: string;
+  listingId: number;
+  bedId: number;
+}
+
+interface PaginatedBookings {
+  pageIndex: number; pageSize: number; count: number; data: BookingSummary[];
 }
 
 // Full booking detail from GetBooking/{id}
@@ -53,19 +72,6 @@ interface BookingDetail {
   landlordName: string;
   amount: number;
   type: number;         // 1=Single Bed, 2=Entire Room
-}
-
-// Minimal summary returned by the list endpoint
-interface BookingSummary {
-  id: number;
-  startDate: string;
-  endDate: string;
-  listingId: number;
-  bedId: number;
-}
-
-interface PaginatedBookings {
-  pageIndex: number; pageSize: number; count: number; data: BookingSummary[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -111,7 +117,6 @@ interface BookingDetailDialogProps {
 const BookingDetailDialog = ({ booking, open, onClose, listingTitle }: BookingDetailDialogProps) => {
   const navigate = useNavigate();
   if (!booking) return null;
-
   const { label, color } = bookingStatusInfo(booking.status);
 
   return (
@@ -204,7 +209,10 @@ export const Dashboard = () => {
   const [loading, setLoading]           = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionDto | null>(null);
 
-  // Full booking details — fetched eagerly so student names & amounts are visible in list
+  // Resolved numeric landlord profile ID (may differ from user.id which could be accountId)
+  const [landlordProfileId, setLandlordProfileId] = useState<string | null>(null);
+
+  // Full booking details
   const [bookings, setBookings]               = useState<BookingDetail[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [bookingsFetched, setBookingsFetched] = useState(false);
@@ -231,37 +239,58 @@ export const Dashboard = () => {
 
   const profileIncomplete = !user.nationalId;
 
-  // ─── Fetch listings & subscription ─────────────────────────────────────────
+  // ─── Fetch listings, subscription, and resolve landlord numeric ID ──────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [listingsData, subData] = await Promise.allSettled([
+        const [listingsData, subData, profileData] = await Promise.allSettled([
           api.get<Listing[]>('/Listing/listingsByLandLord'),
           api.get<SubscriptionDto>('/Subscription'),
+          // Fetch landlord profile to get the definitive numeric ID used by booking endpoints
+          user.id
+            ? api.get<LandlordProfile>(`/LandLord/${user.id}`)
+            : user.email
+              ? api.get<LandlordProfile>(`/LandLord/Email?email=${encodeURIComponent(user.email)}`)
+              : Promise.reject('no id'),
         ]);
+
         if (listingsData.status === 'fulfilled') setListings(listingsData.value || []);
         else toast.error('Failed to load your listings.');
+
         if (subData.status === 'fulfilled') setSubscription(subData.value);
+
+        if (profileData.status === 'fulfilled' && profileData.value?.id) {
+          setLandlordProfileId(String(profileData.value.id));
+        } else if (user.id) {
+          // Fallback to whatever ID we have
+          setLandlordProfileId(String(user.id));
+        }
       } finally {
         setLoading(false);
       }
     };
     fetchAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Fetch bookings (lazy, once) — get summaries then hydrate each with full detail ──
+  // ─── Fetch bookings (lazy, once, after landlordProfileId is resolved) ───────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    if (activeTab !== 'bookings' || bookingsFetched || !user?.id) return;
+    if (activeTab !== 'bookings' || bookingsFetched || !landlordProfileId) return;
     setBookingsLoading(true);
 
     const loadBookings = async () => {
       try {
-        // Step 1: get paginated summary list
+        console.log('[Dashboard] Fetching bookings for landlordProfileId:', landlordProfileId);
+
+        // Step 1: get the paginated summary list
         const paged = await api.get<PaginatedBookings>(
-          `/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=100`
+          `/Booking/GetLandLordBookings/${landlordProfileId}?PageIndex=1&PageSize=100`
         );
+
+        console.log('[Dashboard] Booking list response:', paged);
+
         const summaries: BookingSummary[] = paged?.data || [];
 
         if (summaries.length === 0) {
@@ -270,16 +299,39 @@ export const Dashboard = () => {
           return;
         }
 
-        // Step 2: fetch full detail for each booking in parallel
-        const details = await Promise.all(
-          summaries.map(s =>
-            api.get<BookingDetail>(`/Booking/GetBooking/${s.id}`).catch(() => null)
-          )
+        // Step 2: fetch full detail for every booking id in parallel
+        const settled = await Promise.allSettled(
+          summaries.map(s => api.get<BookingDetail>(`/Booking/GetBooking/${s.id}`))
         );
 
-        setBookings(details.filter(Boolean) as BookingDetail[]);
+        const details: BookingDetail[] = summaries.map((summary, i) => {
+          const result = settled[i];
+          if (result.status === 'fulfilled' && result.value) {
+            return result.value;
+          }
+          // Fallback: build a minimal record from the summary so it still renders
+          return {
+            id: summary.id,
+            startDate: summary.startDate,
+            endDate: summary.endDate,
+            listingId: summary.listingId,
+            bedId: summary.bedId,
+            status: 1,
+            studentId: 0,
+            studentName: '',
+            roomId: 0,
+            landLordId: 0,
+            landlordName: '',
+            amount: 0,
+            type: 1,
+          } as BookingDetail;
+        });
+
+        console.log('[Dashboard] Resolved booking details:', details);
+        setBookings(details);
         setBookingsFetched(true);
-      } catch {
+      } catch (err) {
+        console.error('[Dashboard] Booking fetch error:', err);
         toast.error('Failed to load bookings.');
       } finally {
         setBookingsLoading(false);
@@ -287,7 +339,7 @@ export const Dashboard = () => {
     };
 
     loadBookings();
-  }, [activeTab, bookingsFetched, user?.id]);
+  }, [activeTab, bookingsFetched, landlordProfileId]);
 
   const handleDelete = async (listingId: number) => {
     try {
@@ -308,8 +360,7 @@ export const Dashboard = () => {
     navigate('/add-house');
   };
 
-  // ─── Stats ─────────────────────────────────────────────────────────────────
-  // Compute per-listing bed counts from rooms.beds (fallback to bedCount if beds array empty)
+  // ─── Bed count helper — handles both populated beds[] and bedCount fallback ─
   const getBedCounts = (listing: Listing) => {
     const allBeds = listing.rooms.flatMap(r => r.beds || []);
     if (allBeds.length > 0) {
@@ -318,7 +369,7 @@ export const Dashboard = () => {
         total: allBeds.length,
       };
     }
-    // Fallback: use bedCount field when beds array isn't populated
+    // Fallback when beds array is empty: use bedCount field
     const total = listing.rooms.reduce((sum, r) => sum + (r.bedCount || 0), 0);
     return { available: total, total };
   };
@@ -329,7 +380,7 @@ export const Dashboard = () => {
     return sum + (total - available);
   }, 0);
 
-  const allPrices  = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
+  const allPrices   = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
   const lowestPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
 
   const activeBookingsCount = bookings.filter(b => b.status === 1).length;
@@ -342,7 +393,7 @@ export const Dashboard = () => {
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
 
-        {/* Booking detail dialog — pre-loaded data, no extra fetch needed */}
+        {/* Booking detail dialog */}
         <BookingDetailDialog
           booking={selectedBooking}
           open={detailOpen}
@@ -433,7 +484,7 @@ export const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-[#34495E] text-3xl font-bold">
-                {loading ? <span className="text-gray-300 animate-pulse">—</span> : totalAvailableBeds}
+                {loading ? <span className="text-gray-300">—</span> : totalAvailableBeds}
               </div>
             </CardContent>
           </Card>
@@ -446,7 +497,7 @@ export const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-[#34495E] text-3xl font-bold">
-                {loading ? <span className="text-gray-300 animate-pulse">—</span> : totalBookedBeds}
+                {loading ? <span className="text-gray-300">—</span> : totalBookedBeds}
               </div>
               <p className="text-[#00A5A7] text-xs mt-1">Click to view bookings →</p>
             </CardContent>
@@ -459,7 +510,7 @@ export const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-[#34495E] text-2xl font-bold">
-                {loading ? <span className="text-gray-300 animate-pulse">—</span>
+                {loading ? <span className="text-gray-300">—</span>
                   : lowestPrice > 0 ? `EGP ${lowestPrice.toLocaleString()}` : '—'}
               </div>
             </CardContent>
@@ -552,19 +603,20 @@ export const Dashboard = () => {
                             </Badge>
                           </div>
 
-                          <div className="flex items-center gap-4 mb-3 flex-wrap text-sm text-[#717182]">
-                            {/* Beds available — show clearly */}
+                          <div className="flex items-center gap-4 mb-3 flex-wrap text-sm">
                             <span className={`font-medium ${available === 0 ? 'text-[#FF6F61]' : 'text-[#00A5A7]'}`}>
                               {available}/{total} beds available
                             </span>
                             {listing.rooms.length > 0 && (
-                              <span>{listing.rooms.length} room{listing.rooms.length !== 1 ? 's' : ''}</span>
+                              <span className="text-[#717182]">
+                                {listing.rooms.length} room{listing.rooms.length !== 1 ? 's' : ''}
+                              </span>
                             )}
                             {listing.furnished && <Badge variant="outline" className="text-xs">Furnished</Badge>}
                             {listing.wifiAvailable && <Badge variant="outline" className="text-xs">WiFi</Badge>}
                           </div>
 
-                          {/* Per-room bed breakdown */}
+                          {/* Per-room breakdown */}
                           {listing.rooms.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-3">
                               {listing.rooms.map((room, idx) => {
@@ -641,7 +693,13 @@ export const Dashboard = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {bookingsLoading ? (
+              {/* Still waiting for landlordProfileId to resolve */}
+              {!landlordProfileId && !bookingsLoading ? (
+                <div className="text-center py-12">
+                  <div className="w-8 h-8 border-4 border-[#00A5A7] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-[#717182] text-sm">Resolving account…</p>
+                </div>
+              ) : bookingsLoading ? (
                 <div className="space-y-3">
                   {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}
                 </div>
@@ -667,9 +725,7 @@ export const Dashboard = () => {
                             <span className="text-sm text-[#34495E] font-medium truncate">
                               {relatedListing?.title || `Listing #${booking.listingId}`}
                             </span>
-                            <span className="text-xs text-[#717182] flex-shrink-0">
-                              #{booking.id}
-                            </span>
+                            <span className="text-xs text-[#717182] flex-shrink-0">#{booking.id}</span>
                           </div>
                           {booking.amount > 0 && (
                             <span className="text-sm text-[#FF6F61] font-semibold flex-shrink-0">
@@ -679,15 +735,21 @@ export const Dashboard = () => {
                         </div>
 
                         <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
-                          {booking.studentName && (
-                            <span className="flex items-center gap-1 text-[#34495E]">
+                          {booking.studentName ? (
+                            <span className="flex items-center gap-1 text-[#34495E] font-medium">
                               <User className="w-3.5 h-3.5 text-[#00A5A7]" />
                               {booking.studentName}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[#717182] italic">
+                              <User className="w-3.5 h-3.5" />
+                              Student info unavailable
                             </span>
                           )}
                           <span className="flex items-center gap-1">
                             <Bed className="w-3.5 h-3.5" />
-                            Bed #{booking.bedId} · {bookingTypeLabel(booking.type)}
+                            Bed #{booking.bedId}
+                            {booking.type > 0 && ` · ${bookingTypeLabel(booking.type)}`}
                           </span>
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5" />
