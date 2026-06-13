@@ -272,7 +272,7 @@ export const HouseDetail = () => {
         const res = await api.post<any>('/Booking/CreateBooking', {
           bedId: selectedBedId,
           durationInMonths: Number(durationMonths),
-          type : 1 ,
+          type: 1,
         });
 
         const bookingId =
@@ -292,7 +292,7 @@ export const HouseDetail = () => {
         setPaymentOpen(true);
 
       } else {
-        // ── Whole room booking — one POST per bed ──────────────────────────
+        // ── Whole room booking — single POST ──────────────────────────────
         const room = listing?.rooms.find(r => r.id === selectedRoomId);
         if (!room) { toast.error('Room not found.'); return; }
 
@@ -302,26 +302,22 @@ export const HouseDetail = () => {
           return;
         }
 
-        // Sequential requests — one booking per bed
-        const bookingIds: number[] = [];
-          const res = await api.post<any>('/Booking/CreateBooking', {
-            roomId: selectedroomid,
-            durationInMonths: Number(durationMonths),
-            type : 2 ,
-          });
-          const bookingId =
-            typeof res === 'number' ? res : res?.id ?? res?.bookingId ?? null;
-          if (bookingId) bookingIds.push(bookingId);
-        }
+        const res = await api.post<any>('/Booking/CreateBooking', {
+          roomId: selectedRoomId,
+          durationInMonths: Number(durationMonths),
+          type: 2,
+        });
 
-        if (bookingIds.length === 0) {
-          toast.error('Failed to create bookings. Please contact support.');
+        const bookingId =
+          typeof res === 'number' ? res : res?.id ?? res?.bookingId ?? null;
+
+        if (!bookingId) {
+          toast.error('Booking created but no ID returned. Please contact support.');
           return;
         }
 
-        // Open payment modal using first booking ID; amount = all beds × price
         const totalPrice = room.pricePerBed * availableRoomBeds.length;
-        setPendingBookingId(bookingIds[0]);
+        setPendingBookingId(bookingId);
         setPendingAmount(totalPrice);
         setPaymentOpen(true);
       }
@@ -395,19 +391,19 @@ export const HouseDetail = () => {
     .flatMap(r => r.beds.map(b => ({ ...b, price: r.pricePerBed })))
     .find(b => b.id === selectedBedId)?.price;
 
-  const selectedRoom        = listing.rooms.find(r => r.id === selectedRoomId);
+  const selectedRoom           = listing.rooms.find(r => r.id === selectedRoomId);
   const selectedRoomTotalPrice = selectedRoom
     ? selectedRoom.pricePerBed * selectedRoom.beds.length
     : undefined;
 
-  const activePrice    = bookingMode === 'bed' ? selectedBedPrice : selectedRoomTotalPrice;
-  const totalWithFees  = activePrice && durationMonths
+  const activePrice   = bookingMode === 'bed' ? selectedBedPrice : selectedRoomTotalPrice;
+  const totalWithFees = activePrice && durationMonths
     ? Math.round(activePrice * Number(durationMonths) * 1.1)
     : undefined;
 
-  const landlordName  = getLandlordName(listing);
-  const isOwnListing  = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
-  const showContact   = listing.canViewContact || paymentDone;
+  const landlordName    = getLandlordName(listing);
+  const isOwnListing    = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
+  const showContact     = listing.canViewContact || paymentDone;
   const bookingComplete = paymentDone || listing.canViewContact;
 
   return (
@@ -517,9 +513,9 @@ export const HouseDetail = () => {
               <CardContent className="p-6">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
-                    { icon: <Home className="w-6 h-6 text-[#00A5A7] mb-2" />,  label: `${listing.numberOfRooms} Rooms` },
-                    { icon: <Bed  className="w-6 h-6 text-[#00A5A7] mb-2" />,  label: `${availableBeds.length} Available Beds` },
-                    { icon: <Wifi className="w-6 h-6 text-[#00A5A7] mb-2" />,  label: listing.wifiAvailable ? 'WiFi Yes' : 'No WiFi' },
+                    { icon: <Home  className="w-6 h-6 text-[#00A5A7] mb-2" />, label: `${listing.numberOfRooms} Rooms` },
+                    { icon: <Bed   className="w-6 h-6 text-[#00A5A7] mb-2" />, label: `${availableBeds.length} Available Beds` },
+                    { icon: <Wifi  className="w-6 h-6 text-[#00A5A7] mb-2" />, label: listing.wifiAvailable ? 'WiFi Yes' : 'No WiFi' },
                     { icon: <Users className="w-6 h-6 text-[#00A5A7] mb-2" />, label: listing.genderPreference === 0 ? 'Any Gender' : GENDER_LABELS[listing.genderPreference] },
                   ].map(({ icon, label }) => (
                     <div key={label} className="flex flex-col items-center p-4 bg-[#00A5A7]/5 rounded-lg">
