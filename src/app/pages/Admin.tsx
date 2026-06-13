@@ -13,7 +13,7 @@ import {
 } from '../components/ui/dialog';
 import {
   Users, Home, TrendingUp, Flag, CheckCircle, XCircle,
-  Search, Ban, ShieldOff, MapPin, BookOpen, Bed, User, Calendar, ShieldAlert,
+  Search, Ban, ShieldOff, MapPin, BookOpen, Bed, User, Calendar, ShieldAlert, GraduationCap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -55,10 +55,18 @@ interface Student {
   facultyField?: string; homeTown?: string; accountId: string; isBanned?: boolean;
 }
 
+// reporterId/reportedId kept for backward-compat (may be absent now that the
+// backend returns emails instead of account GUIDs)
 interface Report {
   id?: number;
-  reporterId: string; reportedId: string; reason: string;
-  status: number; type: number; createdAt: string;
+  reporterId?: string;
+  reportedId?: string;
+  reporterEmail: string;
+  reportedEmail: string;
+  reason: string;
+  status: number;
+  type: number;
+  createdAt: string;
 }
 
 interface PaginatedReports {
@@ -116,6 +124,128 @@ const bookingStatusInfo = (s: number) => {
 const formatDate = (d: string) => {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const genderLabel = (g?: number) => (g === 1 ? 'Male' : g === 2 ? 'Female' : '—');
+
+// ─── User Info Dialog ─────────────────────────────────────────────────────────
+// Looks up a user by email (tries Student first, then LandLord) and shows
+// their details. Triggered by clicking a reporter/reported email in Reports.
+
+interface UserLookupResult {
+  kind: 'student' | 'landlord';
+  data: Student | LandlordProfileLookup;
+}
+
+interface LandlordProfileLookup extends Landlord {}
+
+interface UserInfoDialogProps {
+  email: string;
+  children: React.ReactNode; // trigger element
+}
+
+const UserInfoDialog = ({ email, children }: UserInfoDialogProps) => {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<UserLookupResult | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [fetched, setFetched] = useState(false);
+
+  const handleOpenChange = async (next: boolean) => {
+    setOpen(next);
+    if (!next || fetched) return;
+
+    setLoading(true);
+    setNotFound(false);
+    try {
+      // Try student first
+      const student = await api.get<Student>(`/Student/Email?email=${encodeURIComponent(email)}`).catch(() => null);
+      if (student?.id) {
+        setResult({ kind: 'student', data: student });
+        setFetched(true);
+        return;
+      }
+      // Fall back to landlord
+      const landlord = await api.get<Landlord>(`/LandLord/Email?email=${encodeURIComponent(email)}`).catch(() => null);
+      if (landlord?.id) {
+        setResult({ kind: 'landlord', data: landlord });
+        setFetched(true);
+        return;
+      }
+      setNotFound(true);
+    } catch {
+      setNotFound(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-[#34495E] break-all">{email}</DialogTitle>
+          <DialogDescription>Account details for this user</DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="space-y-3 py-2">
+            {[1, 2, 3].map(i => <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />)}
+          </div>
+        ) : notFound ? (
+          <p className="text-sm text-[#717182] py-2">No account found with this email.</p>
+        ) : result ? (
+          <div className="space-y-3 py-2">
+            <div className="flex items-center gap-2">
+              <Badge className={`border text-xs ${
+                result.kind === 'student'
+                  ? 'bg-[#00A5A7]/10 text-[#00A5A7] border-[#00A5A7]/30'
+                  : 'bg-[#B8E986]/20 text-[#34495E] border-[#B8E986]/40'
+              }`}>
+                {result.kind === 'student' ? 'Student' : 'Landlord'}
+              </Badge>
+              {result.data.isBanned && (
+                <Badge className="bg-orange-100 text-orange-600 border-orange-200 border text-xs">Banned</Badge>
+              )}
+            </div>
+
+            <div className="space-y-1.5 text-sm">
+              <p className="text-[#34495E] font-medium">
+                {result.data.firstName} {result.data.lastName}
+              </p>
+              <p className="text-[#717182] flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5" />{result.data.email}
+              </p>
+              {result.data.phoneNumber && (
+                <p className="text-[#717182]">📞 {result.data.phoneNumber}</p>
+              )}
+              {result.data.homeTown && (
+                <p className="text-[#717182] flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5" />{result.data.homeTown}
+                </p>
+              )}
+              {result.kind === 'student' && (result.data as Student).facultyField && (
+                <p className="text-[#717182] flex items-center gap-1.5">
+                  <GraduationCap className="w-3.5 h-3.5" />{(result.data as Student).facultyField}
+                </p>
+              )}
+              {result.kind === 'student' && (result.data as Student).gender != null && (
+                <p className="text-[#717182]">Gender: {genderLabel((result.data as Student).gender)}</p>
+              )}
+              {result.kind === 'landlord' && (result.data as Landlord).nationalId && (
+                <p className="text-[#717182]">National ID: {(result.data as Landlord).nationalId}</p>
+              )}
+              <p className="text-[#717182] text-xs">
+                ID: #{result.data.id}
+                {result.data.accountId && <> · Account: <span className="font-mono">{result.data.accountId.slice(0, 8)}…</span></>}
+              </p>
+            </div>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
 };
 
 // ─── Ban Dialog ───────────────────────────────────────────────────────────────
@@ -1071,7 +1201,12 @@ export const Admin = () => {
                           </div>
                           <p className="text-sm text-[#34495E]">{r.reason}</p>
                           <p className="text-xs text-[#717182]">
-                            Reporter: <span className="font-mono">{r.reporterId?.slice(0,8)}…</span>
+                            Reporter:{' '}
+                            <UserInfoDialog email={r.reporterEmail}>
+                              <button className="font-medium text-[#00A5A7] hover:underline">
+                                {r.reporterEmail}
+                              </button>
+                            </UserInfoDialog>
                           </p>
                         </div>
                       );
@@ -1086,7 +1221,7 @@ export const Admin = () => {
                 <div>
                   <CardTitle className="text-[#34495E]">All Reports</CardTitle>
                   <CardDescription>
-                    Review and manage user reports.
+                    Review and manage user reports. Click an email to view that user's account.
                     {reports.length > 0 && !reports[0]?.id && (
                       <span className="text-amber-600 ml-2 text-xs">
                         ⚠ Backend must include "id" in GetAllReports to enable Resolve/Reject.
@@ -1134,10 +1269,20 @@ export const Admin = () => {
                                 {report.id && <span className="text-xs text-[#717182]">ID: #{report.id}</span>}
                               </div>
                               <p className="text-sm text-[#34495E]">{report.reason}</p>
-                              <p className="text-xs text-[#717182]">
-                                Reporter: <span className="font-mono">{report.reporterId?.slice(0,8)}…</span>
-                                {' · '}
-                                Reported: <span className="font-mono">{report.reportedId?.slice(0,8)}…</span>
+                              <p className="text-xs text-[#717182] flex flex-wrap items-center gap-1">
+                                <span>Reporter:</span>
+                                <UserInfoDialog email={report.reporterEmail}>
+                                  <button className="font-medium text-[#00A5A7] hover:underline">
+                                    {report.reporterEmail}
+                                  </button>
+                                </UserInfoDialog>
+                                <span>·</span>
+                                <span>Reported:</span>
+                                <UserInfoDialog email={report.reportedEmail}>
+                                  <button className="font-medium text-[#00A5A7] hover:underline">
+                                    {report.reportedEmail}
+                                  </button>
+                                </UserInfoDialog>
                               </p>
                             </div>
 
