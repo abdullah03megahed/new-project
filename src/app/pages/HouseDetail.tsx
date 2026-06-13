@@ -202,6 +202,12 @@ export const HouseDetail = () => {
   const [listing, setListing]               = useState<Listing | null>(null);
   const [loading, setLoading]               = useState(true);
   const [selectedBedId, setSelectedBedId]   = useState<number | null>(null);
+
+  // 'bed' | 'room' — tracks which booking type is in progress
+  const [bookingMode, setBookingMode]       = useState<'bed' | 'room'>('bed');
+  // When booking a whole room, store which room
+  const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
+
   const [durationMonths, setDurationMonths] = useState<number | ''>(1);
   const [bookingLoading, setBookingLoading] = useState(false);
 
@@ -256,23 +262,46 @@ export const HouseDetail = () => {
 
   // ─── Step 1: Create booking → open payment modal ──────────────────────────
   const handleBooking = async () => {
-    if (!selectedBedId) {
-      toast.error('Please select a bed.');
-      return;
+    if (bookingMode === 'bed') {
+      if (!selectedBedId) {
+        toast.error('Please select a bed.');
+        return;
+      }
+    } else {
+      if (!selectedRoomId) {
+        toast.error('Please select a room.');
+        return;
+      }
     }
+
     if (!durationMonths || Number(durationMonths) < 1) {
       toast.error('Please enter a valid duration (minimum 1 month).');
       return;
     }
+
     setBookingLoading(true);
     try {
-      // POST /api/Booking/CreateBooking → returns booking ID or object with id
-      const res = await api.post<any>('/Booking/CreateBooking', {
-        bedId: selectedBedId,
-        durationInMonths: Number(durationMonths),
-      });
+      let res: any;
+      let totalPrice: number | undefined;
 
-      // Backend may return a plain number, { id }, or { bookingId }
+      if (bookingMode === 'bed') {
+        res = await api.post<any>('/Booking/CreateBooking', {
+          bedId: selectedBedId,
+          durationInMonths: Number(durationMonths),
+        });
+        totalPrice = listing?.rooms
+          .flatMap(r => r.beds.map(b => ({ id: b.id, price: r.pricePerBed })))
+          .find(b => b.id === selectedBedId)?.price;
+      } else {
+        // Book entire room — send all bed IDs in that room
+        const room = listing?.rooms.find(r => r.id === selectedRoomId);
+        res = await api.post<any>('/Booking/CreateBooking', {
+          roomId: selectedRoomId,
+          durationInMonths: Number(durationMonths),
+        });
+        totalPrice = room ? room.pricePerBed * room.beds.length : undefined;
+      }
+
       const bookingId =
         typeof res === 'number'
           ? res
@@ -283,13 +312,8 @@ export const HouseDetail = () => {
         return;
       }
 
-      // Store booking ID and open payment modal
       setPendingBookingId(bookingId);
-      setPendingAmount(
-        listing?.rooms
-          .flatMap(r => r.beds.map(b => ({ id: b.id, price: r.pricePerBed })))
-          .find(b => b.id === selectedBedId)?.price
-      );
+      setPendingAmount(totalPrice);
       setPaymentOpen(true);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Booking failed.');
@@ -303,8 +327,9 @@ export const HouseDetail = () => {
     setPaymentDone(true);
     setPendingBookingId(null);
     setSelectedBedId(null);
+    setSelectedRoomId(null);
+    setBookingMode('bed');
     setDurationMonths(1);
-    // Refresh to get updated canViewContact, landlordPhoneNumber, exactAddress
     try {
       const updated = await api.get<Listing>(`/Listing/${id}`);
       setListing(updated);
@@ -359,13 +384,21 @@ export const HouseDetail = () => {
     .flatMap(r => r.beds.map(b => ({ ...b, price: r.pricePerBed })))
     .find(b => b.id === selectedBedId)?.price;
 
+  const selectedRoom = listing.rooms.find(r => r.id === selectedRoomId);
+  const selectedRoomTotalPrice = selectedRoom
+    ? selectedRoom.pricePerBed * selectedRoom.beds.length
+    : undefined;
+
+  // Active price based on mode
+  const activePrice = bookingMode === 'bed' ? selectedBedPrice : selectedRoomTotalPrice;
+  const totalWithFees = activePrice && durationMonths
+    ? Math.round(activePrice * Number(durationMonths) * 1.1)
+    : undefined;
+
   const landlordName = getLandlordName(listing);
   const isOwnListing = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
 
-  // Contact is visible only if backend says so OR user just paid
   const showContact = listing.canViewContact || paymentDone;
-
-  // Hide booking form once payment is done
   const bookingComplete = paymentDone || listing.canViewContact;
 
   return (
@@ -375,7 +408,6 @@ export const HouseDetail = () => {
         <Lightbox images={lightboxImages} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />
       )}
 
-      {/* Payment modal — opens after booking is created */}
       {pendingBookingId !== null && (
         <PaymentModal
           open={paymentOpen}
@@ -449,7 +481,6 @@ export const HouseDetail = () => {
               </div>
               <div className="flex items-center gap-2 text-[#717182] mb-2">
                 <MapPin className="w-5 h-5" />
-                {/* Show exact address only after payment */}
                 <span>
                   {showContact && listing.exactAddress
                     ? `${listing.exactAddress}, ${listing.city}`
@@ -494,53 +525,93 @@ export const HouseDetail = () => {
               <CardContent className="p-6">
                 <h3 className="text-[#34495E] mb-4">Rooms & Beds</h3>
                 <div className="space-y-4">
-                  {listing.rooms.map((room, roomIndex) => (
-                    <div key={room.id} className="border rounded-lg p-4">
-                      <div className="flex justify-between items-center mb-3">
-                        <h4 className="text-[#34495E]">Room {roomIndex + 1}</h4>
-                        <span className="text-[#FF6F61] font-semibold">
-                          EGP {room.pricePerBed.toLocaleString()}/bed/month
-                        </span>
-                      </div>
-                      {room.roomImages.length > 0 && (
-                        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
-                          {room.roomImages.map((img, i) => (
-                            <div key={i} className="relative flex-shrink-0 group cursor-pointer"
-                              onClick={() => openLightbox(room.roomImages, i)}>
-                              <img src={prefixImage(img)} alt={`Room ${roomIndex + 1} image ${i + 1}`}
-                                className="h-24 w-36 object-cover rounded transition-transform group-hover:scale-[1.03]"
-                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                              <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 flex items-center justify-center">
-                                <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
+                  {listing.rooms.map((room, roomIndex) => {
+                    const allBedsAvailable = room.beds.length > 0 && room.beds.every(b => !b.isBooked);
+                    const isRoomSelected = selectedRoomId === room.id && bookingMode === 'room';
+
+                    return (
+                      <div key={room.id} className="border rounded-lg p-4">
+                        <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <h4 className="text-[#34495E]">Room {roomIndex + 1}</h4>
+
+                            {/* Book a Room button — students only, all beds available, booking not complete */}
+                            {user?.type === 'student' && !bookingComplete && allBedsAvailable && (
+                              <Button
+                                size="sm"
+                                variant={isRoomSelected ? 'default' : 'outline'}
+                                onClick={() => {
+                                  if (isRoomSelected) {
+                                    // Deselect room
+                                    setSelectedRoomId(null);
+                                    setBookingMode('bed');
+                                  } else {
+                                    setSelectedRoomId(room.id);
+                                    setSelectedBedId(null);
+                                    setBookingMode('room');
+                                  }
+                                }}
+                                className={
+                                  isRoomSelected
+                                    ? 'bg-[#00A5A7] text-white border-[#00A5A7] hover:bg-[#00A5A7]/90'
+                                    : 'border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white'
+                                }
+                              >
+                                <Home className="w-3.5 h-3.5 mr-1" />
+                                {isRoomSelected ? 'Room Selected ✓' : 'Book a Room'}
+                              </Button>
+                            )}
+                          </div>
+
+                          <span className="text-[#FF6F61] font-semibold">
+                            EGP {room.pricePerBed.toLocaleString()}/bed/month
+                          </span>
+                        </div>
+
+                        {room.roomImages.length > 0 && (
+                          <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+                            {room.roomImages.map((img, i) => (
+                              <div key={i} className="relative flex-shrink-0 group cursor-pointer"
+                                onClick={() => openLightbox(room.roomImages, i)}>
+                                <img src={prefixImage(img)} alt={`Room ${roomIndex + 1} image ${i + 1}`}
+                                  className="h-24 w-36 object-cover rounded transition-transform group-hover:scale-[1.03]"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 flex items-center justify-center">
+                                  <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
+                                </div>
                               </div>
-                            </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
+                          {room.beds.map(bed => (
+                            <button
+                              key={bed.id}
+                              onClick={() => {
+                                if (!bed.isBooked && user?.type === 'student' && !bookingComplete) {
+                                  setSelectedBedId(bed.id);
+                                  setSelectedRoomId(null);
+                                  setBookingMode('bed');
+                                }
+                              }}
+                              disabled={bed.isBooked || bookingComplete}
+                              className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all
+                                ${bed.isBooked || bookingComplete
+                                  ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                                  : selectedBedId === bed.id && bookingMode === 'bed'
+                                    ? 'bg-[#00A5A7] border-[#00A5A7] text-white'
+                                    : 'bg-white border-[#B8E986] text-[#34495E] hover:border-[#00A5A7] cursor-pointer'
+                                }`}
+                            >
+                              <Bed className="w-4 h-4 inline mr-1" />
+                              Bed {bed.bedNumber ?? bed.id} {bed.isBooked ? '(Booked)' : '(Available)'}
+                            </button>
                           ))}
                         </div>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        {room.beds.map(bed => (
-                          <button
-                            key={bed.id}
-                            onClick={() => {
-                              if (!bed.isBooked && user?.type === 'student' && !bookingComplete)
-                                setSelectedBedId(bed.id);
-                            }}
-                            disabled={bed.isBooked || bookingComplete}
-                            className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all
-                              ${bed.isBooked || bookingComplete
-                                ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                                : selectedBedId === bed.id
-                                  ? 'bg-[#00A5A7] border-[#00A5A7] text-white'
-                                  : 'bg-white border-[#B8E986] text-[#34495E] hover:border-[#00A5A7] cursor-pointer'
-                              }`}
-                          >
-                            <Bed className="w-4 h-4 inline mr-1" />
-                            Bed {bed.bedNumber ?? bed.id} {bed.isBooked ? '(Booked)' : '(Available)'}
-                          </button>
-                        ))}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -585,10 +656,19 @@ export const HouseDetail = () => {
                   <div className="space-y-3 border-t pt-4">
                     <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
 
-                    {selectedBedId && (
+                    {/* Selected bed summary */}
+                    {selectedBedId && bookingMode === 'bed' && (
                       <div className="p-2 bg-[#00A5A7]/10 rounded text-sm text-[#00A5A7]">
                         Selected: Bed #{selectedBedId}
                         {selectedBedPrice && ` — EGP ${selectedBedPrice.toLocaleString()}/month`}
+                      </div>
+                    )}
+
+                    {/* Selected room summary */}
+                    {selectedRoomId && bookingMode === 'room' && selectedRoom && (
+                      <div className="p-2 bg-[#00A5A7]/10 rounded text-sm text-[#00A5A7]">
+                        Selected: Entire Room ({selectedRoom.beds.length} beds)
+                        {selectedRoomTotalPrice && ` — EGP ${selectedRoomTotalPrice.toLocaleString()}/month`}
                       </div>
                     )}
 
@@ -606,24 +686,33 @@ export const HouseDetail = () => {
                         }}
                         placeholder="e.g. 6"
                       />
-                      {selectedBedPrice && durationMonths && Number(durationMonths) >= 1 && (
+                      {activePrice && durationMonths && Number(durationMonths) >= 1 && (
                         <p className="text-xs text-[#717182]">
-                          Total: EGP {(selectedBedPrice * Number(durationMonths)).toLocaleString()}
+                          Total + Fees (10%): EGP {totalWithFees?.toLocaleString()}
                         </p>
                       )}
                     </div>
 
                     <Button
                       onClick={handleBooking}
-                      disabled={bookingLoading || !selectedBedId || !durationMonths || Number(durationMonths) < 1}
+                      disabled={
+                        bookingLoading ||
+                        (bookingMode === 'bed' ? !selectedBedId : !selectedRoomId) ||
+                        !durationMonths ||
+                        Number(durationMonths) < 1
+                      }
                       className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white h-12"
                     >
-                      {bookingLoading ? 'Creating Booking...' : 'Book Now & Pay'}
+                      {bookingLoading
+                        ? 'Creating Booking...'
+                        : bookingMode === 'room'
+                          ? 'Book Entire Room & Pay'
+                          : 'Book Now & Pay'}
                     </Button>
 
-                    {!selectedBedId && (
+                    {!selectedBedId && !selectedRoomId && (
                       <p className="text-[#717182] text-xs text-center">
-                        Select an available bed above to book
+                        Select an available bed or an entire room above to book
                       </p>
                     )}
                   </div>
