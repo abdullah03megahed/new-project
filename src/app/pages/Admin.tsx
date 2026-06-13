@@ -13,89 +13,72 @@ import {
 } from '../components/ui/dialog';
 import {
   Users, Home, TrendingUp, Flag, CheckCircle, XCircle,
-  Search, Ban, ShieldOff, MapPin, BookOpen, Bed, User, Calendar, ShieldAlert, GraduationCap,
+  Search, Ban, ShieldOff, MapPin, BookOpen, Bed,
+  User, Calendar, ShieldAlert, GraduationCap, Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface DashboardStats {
-  totalStudents: number;
-  totalLandlords: number;
-  totalListings: number;
-  totalBookings: number;
-  availableBeds: number;
-  occupiedBeds: number;
-  pendingListings: number;
-  totalBans: number;
-  totalReports: number;
+  totalStudents: number; totalLandlords: number; totalListings: number;
+  totalBookings: number; availableBeds: number; occupiedBeds: number;
+  pendingListings: number; totalBans: number; totalReports: number;
   recentListings: RecentListing[];
   recentBookings: RecentBooking[];
 }
-
 interface RecentListing {
   id: number; title: string; city: string; landlordName: string;
   address: string; status: number; listingImages: string[]; publishedAt: string;
-  pricePerMonth?: number;
 }
-
 interface RecentBooking {
   id: number; startDate: string; endDate: string; listingId: number; bedId: number;
 }
-
 interface Landlord {
   id: number; firstName: string; lastName: string;
   email: string; phoneNumber?: string; nationalId?: string;
-  homeTown?: string; birthDate?: string; accountId: string; isBanned?: boolean;
+  homeTown?: string; accountId: string; isBanned?: boolean;
 }
-
 interface Student {
   id: number; firstName: string; lastName: string;
   email: string; phoneNumber?: string; gender?: number;
   facultyField?: string; homeTown?: string; accountId: string; isBanned?: boolean;
 }
-
-// reporterId/reportedId kept for backward-compat (may be absent now that the
-// backend returns emails instead of account GUIDs)
+// GetAllReports returns reporterId / reportedId as account GUIDs
 interface Report {
   id?: number;
-  reporterId?: string;
-  reportedId?: string;
-  reporterEmail: string;
-  reportedEmail: string;
+  reporterId: string;
+  reportedId: string;
   reason: string;
   status: number;
   type: number;
   createdAt: string;
 }
-
 interface PaginatedReports {
   pageIndex: number; pageSize: number; count: number; data: Report[];
 }
-
 interface BookingDto {
+  id: number; studentId?: number; studentName?: string;
+  landlordId?: number; landlordName?: string;
+  listingId: number; listingTitle?: string;
+  bedId: number; startDate: string; endDate: string;
+  status: number; amount?: number; durationInMonths?: number;
+}
+interface BanRecord { userId: string; isActive: boolean; }
+interface PaginatedBans { pageIndex: number; pageSize: number; count: number; data: BanRecord[]; }
+
+// Result of looking up a user by accountId
+interface UserLookup {
+  kind: 'student' | 'landlord';
+  name: string;
+  email: string;
+  phoneNumber?: string;
+  homeTown?: string;
+  facultyField?: string;
+  gender?: number;
+  nationalId?: string;
   id: number;
-  studentId: number;
-  studentName?: string;
-  landlordId?: number;
-  landlordName?: string;
-  listingId: number;
-  listingTitle?: string;
-  bedId: number;
-  startDate: string;
-  endDate: string;
-  status: number;
-  amount?: number;
-  durationInMonths?: number;
-}
-
-interface BanRecord {
-  userId: string;
-  isActive: boolean;
-}
-
-interface PaginatedBans {
-  pageIndex: number; pageSize: number; count: number; data: BanRecord[];
+  accountId: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -128,76 +111,96 @@ const formatDate = (d: string) => {
 
 const genderLabel = (g?: number) => (g === 1 ? 'Male' : g === 2 ? 'Female' : '—');
 
-// ─── User Info Dialog ─────────────────────────────────────────────────────────
-// Looks up a user by email (tries Student first, then LandLord) and shows
-// their details. Triggered by clicking a reporter/reported email in Reports.
+// ─── Lookup user by accountId ─────────────────────────────────────────────────
+// Tries Student/Account first, then LandLord/Account
+async function lookupUserByAccountId(accountId: string): Promise<UserLookup | null> {
+  try {
+    const s = await api.get<any>(`/Student/Account/${accountId}`).catch(() => null);
+    if (s?.id) {
+      return {
+        kind: 'student',
+        name: `${s.firstName ?? ''} ${s.lastName ?? ''}`.trim(),
+        email: s.email,
+        phoneNumber: s.phoneNumber,
+        homeTown: s.homeTown,
+        facultyField: s.facultyField,
+        gender: s.gender,
+        id: s.id,
+        accountId,
+      };
+    }
+  } catch { /* fall through */ }
 
-interface UserLookupResult {
-  kind: 'student' | 'landlord';
-  data: Student | LandlordProfileLookup;
+  try {
+    const l = await api.get<any>(`/LandLord/Account/${accountId}`).catch(() => null);
+    if (l?.id) {
+      return {
+        kind: 'landlord',
+        name: `${l.firstName ?? ''} ${l.lastName ?? ''}`.trim(),
+        email: l.email,
+        phoneNumber: l.phoneNumber,
+        homeTown: l.homeTown,
+        nationalId: l.nationalId,
+        id: l.id,
+        accountId,
+      };
+    }
+  } catch { /* not found */ }
+
+  return null;
 }
 
-interface LandlordProfileLookup extends Landlord {}
+// ─── User Info Dialog — looks up by accountId, shows details ─────────────────
 
 interface UserInfoDialogProps {
-  email: string;
-  children: React.ReactNode; // trigger element
+  accountId: string;
+  label: string; // shown as the clickable button text
 }
 
-const UserInfoDialog = ({ email, children }: UserInfoDialogProps) => {
-  const [open, setOpen] = useState(false);
+const UserInfoDialog = ({ accountId, label }: UserInfoDialogProps) => {
+  const [open, setOpen]       = useState(false);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<UserLookupResult | null>(null);
+  const [result, setResult]   = useState<UserLookup | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [fetched, setFetched] = useState(false);
+  const [fetched, setFetched]   = useState(false);
 
   const handleOpenChange = async (next: boolean) => {
     setOpen(next);
     if (!next || fetched) return;
-
     setLoading(true);
     setNotFound(false);
-    try {
-      // Try student first
-      const student = await api.get<Student>(`/Student/Email?email=${encodeURIComponent(email)}`).catch(() => null);
-      if (student?.id) {
-        setResult({ kind: 'student', data: student });
-        setFetched(true);
-        return;
-      }
-      // Fall back to landlord
-      const landlord = await api.get<Landlord>(`/LandLord/Email?email=${encodeURIComponent(email)}`).catch(() => null);
-      if (landlord?.id) {
-        setResult({ kind: 'landlord', data: landlord });
-        setFetched(true);
-        return;
-      }
+    const found = await lookupUserByAccountId(accountId);
+    if (found) {
+      setResult(found);
+      setFetched(true);
+    } else {
       setNotFound(true);
-    } catch {
-      setNotFound(true);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogTrigger asChild>
+        <button className="font-medium text-[#00A5A7] hover:underline text-xs font-mono">
+          {label}
+        </button>
+      </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-[#34495E] break-all">{email}</DialogTitle>
-          <DialogDescription>Account details for this user</DialogDescription>
+          <DialogTitle className="text-[#34495E]">User Details</DialogTitle>
+          <DialogDescription className="font-mono text-xs break-all">{accountId}</DialogDescription>
         </DialogHeader>
 
         {loading ? (
           <div className="space-y-3 py-2">
-            {[1, 2, 3].map(i => <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />)}
+            {[1,2,3].map(i => <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />)}
           </div>
         ) : notFound ? (
-          <p className="text-sm text-[#717182] py-2">No account found with this email.</p>
+          <p className="text-sm text-[#717182] py-2">No account found for this ID.</p>
         ) : result ? (
           <div className="space-y-3 py-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge className={`border text-xs ${
                 result.kind === 'student'
                   ? 'bg-[#00A5A7]/10 text-[#00A5A7] border-[#00A5A7]/30'
@@ -205,44 +208,102 @@ const UserInfoDialog = ({ email, children }: UserInfoDialogProps) => {
               }`}>
                 {result.kind === 'student' ? 'Student' : 'Landlord'}
               </Badge>
-              {result.data.isBanned && (
-                <Badge className="bg-orange-100 text-orange-600 border-orange-200 border text-xs">Banned</Badge>
-              )}
             </div>
-
             <div className="space-y-1.5 text-sm">
-              <p className="text-[#34495E] font-medium">
-                {result.data.firstName} {result.data.lastName}
-              </p>
-              <p className="text-[#717182] flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5" />{result.data.email}
-              </p>
-              {result.data.phoneNumber && (
-                <p className="text-[#717182]">📞 {result.data.phoneNumber}</p>
-              )}
-              {result.data.homeTown && (
-                <p className="text-[#717182] flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5" />{result.data.homeTown}
+              <p className="text-[#34495E] font-medium">{result.name || '—'}</p>
+              <p className="text-[#717182]">✉ {result.email}</p>
+              {result.phoneNumber && <p className="text-[#717182]">📞 {result.phoneNumber}</p>}
+              {result.homeTown && (
+                <p className="text-[#717182] flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5" />{result.homeTown}
                 </p>
               )}
-              {result.kind === 'student' && (result.data as Student).facultyField && (
-                <p className="text-[#717182] flex items-center gap-1.5">
-                  <GraduationCap className="w-3.5 h-3.5" />{(result.data as Student).facultyField}
+              {result.kind === 'student' && result.facultyField && (
+                <p className="text-[#717182] flex items-center gap-1">
+                  <GraduationCap className="w-3.5 h-3.5" />{result.facultyField}
                 </p>
               )}
-              {result.kind === 'student' && (result.data as Student).gender != null && (
-                <p className="text-[#717182]">Gender: {genderLabel((result.data as Student).gender)}</p>
+              {result.kind === 'student' && result.gender != null && (
+                <p className="text-[#717182]">Gender: {genderLabel(result.gender)}</p>
               )}
-              {result.kind === 'landlord' && (result.data as Landlord).nationalId && (
-                <p className="text-[#717182]">National ID: {(result.data as Landlord).nationalId}</p>
+              {result.kind === 'landlord' && result.nationalId && (
+                <p className="text-[#717182]">National ID: {result.nationalId}</p>
               )}
-              <p className="text-[#717182] text-xs">
-                ID: #{result.data.id}
-                {result.data.accountId && <> · Account: <span className="font-mono">{result.data.accountId.slice(0, 8)}…</span></>}
-              </p>
+              <p className="text-[#717182] text-xs">Numeric ID: #{result.id}</p>
             </div>
           </div>
         ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ─── Report Detail Dialog ─────────────────────────────────────────────────────
+
+interface ReportDetailDialogProps {
+  report: Report;
+}
+
+const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
+  const { label, color } = statusInfo(report.status);
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
+          <Eye className="w-4 h-4 mr-1" />View Details
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-[#34495E]">Report Details</DialogTitle>
+          <DialogDescription>
+            {report.type === 1 ? '📋 Listing Report' : '👤 User Report'}
+            {report.id && ` · ID #${report.id}`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            <Badge className={`${color} border text-xs`}>{label}</Badge>
+            <span className="text-xs text-[#717182]">
+              {new Date(report.createdAt).toLocaleDateString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+              })}
+            </span>
+          </div>
+
+          {/* Reason */}
+          <div className="space-y-1">
+            <Label className="text-[#34495E] text-xs font-semibold">Reason</Label>
+            <p className="text-sm text-[#34495E] p-3 bg-gray-50 rounded-lg border">{report.reason}</p>
+          </div>
+
+          {/* Reporter */}
+          <div className="space-y-1">
+            <Label className="text-[#34495E] text-xs font-semibold">Reporter</Label>
+            <div className="flex items-center gap-2 p-3 bg-[#00A5A7]/5 border border-[#00A5A7]/20 rounded-lg">
+              <User className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs text-[#717182] font-mono break-all">{report.reporterId}</p>
+                <UserInfoDialog accountId={report.reporterId} label="View reporter profile →" />
+              </div>
+            </div>
+          </div>
+
+          {/* Reported */}
+          <div className="space-y-1">
+            <Label className="text-[#34495E] text-xs font-semibold">Reported User</Label>
+            <div className="flex items-center gap-2 p-3 bg-[#FF6F61]/5 border border-[#FF6F61]/20 rounded-lg">
+              <Flag className="w-4 h-4 text-[#FF6F61] flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs text-[#717182] font-mono break-all">{report.reportedId}</p>
+                <UserInfoDialog accountId={report.reportedId} label="View reported profile →" />
+              </div>
+            </div>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -257,11 +318,11 @@ interface BanDialogProps {
 }
 
 const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
-  const [open, setOpen] = useState(false);
-  const [banType, setBanType] = useState<'1' | '2'>('1');
-  const [endDate, setEndDate] = useState('');
-  const [reason, setReason] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [open, setOpen]         = useState(false);
+  const [banType, setBanType]   = useState<'1' | '2'>('1');
+  const [endDate, setEndDate]   = useState('');
+  const [reason, setReason]     = useState('');
+  const [loading, setLoading]   = useState(false);
 
   const minDate = new Date();
   minDate.setDate(minDate.getDate() + 1);
@@ -269,96 +330,69 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
 
   const handleBan = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (banType === '1' && !endDate) {
-      toast.error('Please select an end date for a temporary ban.');
-      return;
-    }
+    if (banType === '1' && !endDate) { toast.error('Please select an end date.'); return; }
     setLoading(true);
     try {
       const payload: any = { userId, type: Number(banType), reason };
       if (banType === '1') payload.endDate = endDate;
       await api.post('/Ban/BanUser', payload);
-      toast.success(
-        banType === '2'
-          ? `${userName} has been permanently banned.`
-          : `${userName} has been banned until ${endDate}.`
-      );
-      setOpen(false);
-      setEndDate('');
-      setReason('');
-      setBanType('1');
+      toast.success(banType === '2' ? `${userName} permanently banned.` : `${userName} banned until ${endDate}.`);
+      setOpen(false); setEndDate(''); setReason(''); setBanType('1');
       onBanned();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to ban user.');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm"
-          className="border-orange-400 text-orange-500 hover:bg-orange-50">
+        <Button variant="outline" size="sm" className="border-orange-400 text-orange-500 hover:bg-orange-50">
           <Ban className="w-4 h-4 mr-1" />Ban
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[#34495E]">Ban {userName}</DialogTitle>
-          <DialogDescription>Choose the type of ban to apply to this account.</DialogDescription>
+          <DialogDescription>Choose the type of ban.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleBan} className="space-y-4 mt-2">
-          <div className="space-y-2">
-            <Label>Ban Type</Label>
-            <div className="grid grid-cols-2 gap-3">
-              <button type="button" onClick={() => setBanType('1')}
-                className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                  banType === '1' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:border-orange-200'
-                }`}>
-                <p className="font-medium text-sm text-[#34495E]">⏱ Temporary</p>
-                <p className="text-xs text-[#717182] mt-1">Ban until a specific date</p>
-              </button>
-              <button type="button" onClick={() => setBanType('2')}
-                className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                  banType === '2' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-red-200'
-                }`}>
-                <p className="font-medium text-sm text-[#34495E]">🚫 Permanent</p>
-                <p className="text-xs text-[#717182] mt-1">Block email forever</p>
-              </button>
-            </div>
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" onClick={() => setBanType('1')}
+              className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                banType === '1' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:border-orange-200'}`}>
+              <p className="font-medium text-sm text-[#34495E]">⏱ Temporary</p>
+              <p className="text-xs text-[#717182] mt-1">Ban until a specific date</p>
+            </button>
+            <button type="button" onClick={() => setBanType('2')}
+              className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                banType === '2' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-red-200'}`}>
+              <p className="font-medium text-sm text-[#34495E]">🚫 Permanent</p>
+              <p className="text-xs text-[#717182] mt-1">Block forever</p>
+            </button>
           </div>
 
           {banType === '1' && (
             <div className="space-y-2">
               <Label>Ban Until</Label>
-              <Input type="date" value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                min={minDateStr} required />
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={minDateStr} required />
             </div>
           )}
-
           {banType === '2' && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-              ⚠ This will permanently block this email from ever registering again.
+              ⚠ This will permanently block this email from registering again.
             </div>
           )}
 
           <div className="space-y-2">
             <Label>Reason</Label>
-            <Input placeholder="Reason for ban..." value={reason}
-              onChange={(e) => setReason(e.target.value)} required />
+            <Input placeholder="Reason for ban..." value={reason} onChange={(e) => setReason(e.target.value)} required />
           </div>
 
           <div className="flex gap-3 justify-end">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>
-              Cancel
-            </Button>
-            <Button type="submit"
-              disabled={loading || !reason || (banType === '1' && !endDate)}
-              className={banType === '2'
-                ? 'bg-red-600 hover:bg-red-700 text-white'
-                : 'bg-orange-500 hover:bg-orange-600 text-white'}>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>Cancel</Button>
+            <Button type="submit" disabled={loading || !reason || (banType === '1' && !endDate)}
+              className={banType === '2' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-orange-500 hover:bg-orange-600 text-white'}>
               {loading ? 'Banning...' : banType === '2' ? 'Permanently Ban' : 'Ban Until Date'}
             </Button>
           </div>
@@ -371,15 +405,10 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
 // ─── User Card ────────────────────────────────────────────────────────────────
 
 interface UserCardProps {
-  name: string;
-  email: string;
-  extra?: React.ReactNode;
-  accountId?: string;
-  numericId: number;
-  onRemove: () => void;
-  onUnban?: () => void;
-  isBanned?: boolean;
-  onBanned?: () => void;
+  name: string; email: string; extra?: React.ReactNode;
+  accountId?: string; numericId: number;
+  onRemove: () => void; onUnban?: () => void;
+  isBanned?: boolean; onBanned?: () => void;
 }
 
 const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, onBanned }: UserCardProps) => (
@@ -392,6 +421,7 @@ const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, 
       <p className="text-sm text-[#717182]">{email}</p>
       {extra}
     </div>
+    {/* ✅ Ban button always visible next to Remove — not just in search */}
     <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
       {accountId && !isBanned && (
         <BanDialog userId={accountId} userName={name} onBanned={onBanned ?? (() => {})} />
@@ -412,19 +442,11 @@ const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, 
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
-interface StatCardProps {
-  label: string;
-  value: number | string;
-  icon: React.ReactNode;
-  onClick?: () => void;
-  highlight?: boolean;
-}
-
-const StatCard = ({ label, value, icon, onClick, highlight }: StatCardProps) => (
-  <Card
-    onClick={onClick}
-    className={`transition-all ${onClick ? 'cursor-pointer hover:border-[#00A5A7] hover:shadow-md' : ''} ${highlight ? 'border-[#00A5A7]/40' : ''}`}
-  >
+const StatCard = ({ label, value, icon, onClick }: {
+  label: string; value: number | string; icon: React.ReactNode; onClick?: () => void;
+}) => (
+  <Card onClick={onClick}
+    className={`transition-all ${onClick ? 'cursor-pointer hover:border-[#00A5A7] hover:shadow-md' : ''}`}>
     <CardHeader className="flex flex-row items-center justify-between pb-2">
       <CardTitle className="text-[#717182] text-xs">{label}</CardTitle>
       {icon}
@@ -447,8 +469,6 @@ export const Admin = () => {
   const [landlords, setLandlords] = useState<Landlord[]>([]);
   const [students, setStudents]   = useState<Student[]>([]);
   const [loading, setLoading]     = useState(true);
-
-  // Set of banned accountIds (source of truth, loaded from /Ban/GetAllBans)
   const [bannedIds, setBannedIds] = useState<Set<string>>(new Set());
 
   const [landlordEmailInput, setLandlordEmailInput] = useState('');
@@ -485,15 +505,11 @@ export const Admin = () => {
     );
   }
 
-  // ─── Fetch active bans and return a Set of banned accountIds ──────────────
   const fetchBannedIds = async (): Promise<Set<string>> => {
     try {
       const data = await api.get<PaginatedBans>('/Ban/GetAllBans?IsActive=true&PageIndex=1&PageSize=500');
-      const records: BanRecord[] = data?.data || [];
-      return new Set(records.filter(r => r.isActive).map(r => r.userId));
-    } catch {
-      return new Set();
-    }
+      return new Set((data?.data || []).filter(r => r.isActive).map(r => r.userId));
+    } catch { return new Set(); }
   };
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -503,31 +519,16 @@ export const Admin = () => {
       try {
         const [statsRes, landlordsRes, studentsRes, bansSet] = await Promise.all([
           api.get<DashboardStats>('/admin/dashboard').catch(() => null),
-          api.get<Landlord[]>('/LandLord').catch(() => []),
-          api.get<Student[]>('/Student').catch(() => []),
+          api.get<Landlord[]>('/LandLord').catch(() => [] as Landlord[]),
+          api.get<Student[]>('/Student').catch(() => [] as Student[]),
           fetchBannedIds(),
         ]);
-
         if (statsRes) setStats(statsRes);
         setBannedIds(bansSet);
-
-        // Merge isBanned into landlords and students using the bans set
-        const landlordsArr: Landlord[] = (landlordsRes || []).map(l => ({
-          ...l,
-          isBanned: bansSet.has(l.accountId),
-        }));
-        const studentsArr: Student[] = (studentsRes || []).map(s => ({
-          ...s,
-          isBanned: bansSet.has(s.accountId),
-        }));
-
-        setLandlords(landlordsArr);
-        setStudents(studentsArr);
-      } catch {
-        /* silently fail */
-      } finally {
-        setLoading(false);
-      }
+        setLandlords((landlordsRes || []).map(l => ({ ...l, isBanned: bansSet.has(l.accountId) })));
+        setStudents((studentsRes || []).map(s => ({ ...s, isBanned: bansSet.has(s.accountId) })));
+      } catch { /* silently fail */ }
+      finally { setLoading(false); }
     };
     fetchAll();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -567,7 +568,6 @@ export const Admin = () => {
     try {
       const params = new URLSearchParams();
       if (bookingStatusFilter !== 'all') params.append('Status', bookingStatusFilter);
-      params.append('SortingOption', '2');
       params.append('PageIndex', '1');
       params.append('PageSize', '100');
       const data = await api.get<any>(`/Booking/GetAllBookings?${params}`);
@@ -576,47 +576,29 @@ export const Admin = () => {
       setBookingCount(data?.count ?? list.length);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load bookings.');
-    } finally {
-      setBookingsLoading(false);
-    }
+    } finally { setBookingsLoading(false); }
   };
 
   const handleLandlordSearch = async () => {
     if (!landlordEmailInput.trim()) return;
-    setLandlordSearching(true);
-    setFoundLandlord(null);
-    setLandlordNotFound(false);
+    setLandlordSearching(true); setFoundLandlord(null); setLandlordNotFound(false);
     try {
       const data = await api.get<Landlord>(`/LandLord/Email?email=${encodeURIComponent(landlordEmailInput.trim())}`);
-      if (data?.id) {
-        setFoundLandlord({ ...data, isBanned: bannedIds.has(data.accountId) });
-      } else {
-        setLandlordNotFound(true);
-      }
-    } catch {
-      setLandlordNotFound(true);
-    } finally {
-      setLandlordSearching(false);
-    }
+      if (data?.id) setFoundLandlord({ ...data, isBanned: bannedIds.has(data.accountId) });
+      else setLandlordNotFound(true);
+    } catch { setLandlordNotFound(true); }
+    finally { setLandlordSearching(false); }
   };
 
   const handleStudentSearch = async () => {
     if (!studentEmailInput.trim()) return;
-    setStudentSearching(true);
-    setFoundStudent(null);
-    setStudentNotFound(false);
+    setStudentSearching(true); setFoundStudent(null); setStudentNotFound(false);
     try {
       const data = await api.get<Student>(`/Student/Email?email=${encodeURIComponent(studentEmailInput.trim())}`);
-      if (data?.id) {
-        setFoundStudent({ ...data, isBanned: bannedIds.has(data.accountId) });
-      } else {
-        setStudentNotFound(true);
-      }
-    } catch {
-      setStudentNotFound(true);
-    } finally {
-      setStudentSearching(false);
-    }
+      if (data?.id) setFoundStudent({ ...data, isBanned: bannedIds.has(data.accountId) });
+      else setStudentNotFound(true);
+    } catch { setStudentNotFound(true); }
+    finally { setStudentSearching(false); }
   };
 
   const handleDeleteLandlord = async (id: number) => {
@@ -639,19 +621,11 @@ export const Admin = () => {
     } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed.'); }
   };
 
-  // ─── Unban ────────────────────────────────────────────────────────────────
-  const handleUnban = async (
-    accountId: string,
-    name: string,
-    type: 'landlord' | 'student',
-    id: number
-  ) => {
+  const handleUnban = async (accountId: string, name: string, type: 'landlord' | 'student', id: number) => {
     try {
       await api.put(`/Ban/UnBanUser/${accountId}`, {});
       toast.success(`${name} has been unbanned.`);
-
-      setBannedIds(prev => { const next = new Set(prev); next.delete(accountId); return next; });
-
+      setBannedIds(prev => { const n = new Set(prev); n.delete(accountId); return n; });
       if (type === 'landlord') {
         setLandlords(prev => prev.map(l => l.id === id ? { ...l, isBanned: false } : l));
         setFoundLandlord(prev => prev?.id === id ? { ...prev, isBanned: false } : prev);
@@ -659,15 +633,11 @@ export const Admin = () => {
         setStudents(prev => prev.map(s => s.id === id ? { ...s, isBanned: false } : s));
         setFoundStudent(prev => prev?.id === id ? { ...prev, isBanned: false } : prev);
       }
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to unban.');
-    }
+    } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed to unban.'); }
   };
 
-  // ─── Ban callback ─────────────────────────────────────────────────────────
   const handleBanned = (type: 'landlord' | 'student', id: number, accountId: string) => {
     setBannedIds(prev => new Set([...prev, accountId]));
-
     if (type === 'landlord') {
       setLandlords(prev => prev.map(l => l.id === id ? { ...l, isBanned: true } : l));
       setFoundLandlord(prev => prev?.id === id ? { ...prev, isBanned: true } : prev);
@@ -679,10 +649,7 @@ export const Admin = () => {
 
   const handleUpdateReport = async (report: Report, index: number, newStatus: number) => {
     if (!report.id) {
-      toast.error(
-        'Cannot update: the backend does not return report IDs in GetAllReports. ' +
-        'Ask the backend team to add "id" to the GetAllReports response schema.'
-      );
+      toast.error('Cannot update: backend must include "id" in GetAllReports response.');
       return;
     }
     setUpdatingReportIdx(index);
@@ -692,9 +659,7 @@ export const Admin = () => {
       await fetchReports();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to update report.');
-    } finally {
-      setUpdatingReportIdx(null);
-    }
+    } finally { setUpdatingReportIdx(null); }
   };
 
   const handleSearchByListing = async () => {
@@ -709,17 +674,15 @@ export const Admin = () => {
       setListingReports(data.data || []);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to fetch reports.');
-    } finally {
-      setListingReportsLoading(false);
-    }
+    } finally { setListingReportsLoading(false); }
   };
 
   const tabs = [
-    { id: 'overview',  label: 'Overview',                                                icon: TrendingUp },
-    { id: 'landlords', label: `Landlords (${landlords.length})`,                         icon: Home },
-    { id: 'students',  label: `Students (${students.length})`,                           icon: Users },
-    { id: 'bookings',  label: `Bookings${bookingCount > 0 ? ` (${bookingCount})` : ''}`, icon: BookOpen },
-    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`,    icon: Flag },
+    { id: 'overview',  label: 'Overview',                                                  icon: TrendingUp },
+    { id: 'landlords', label: `Landlords (${landlords.length})`,                           icon: Home },
+    { id: 'students',  label: `Students (${students.length})`,                             icon: Users },
+    { id: 'bookings',  label: `Bookings${bookingCount > 0 ? ` (${bookingCount})` : ''}`,  icon: BookOpen },
+    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`,     icon: Flag },
   ] as const;
 
   return (
@@ -749,62 +712,19 @@ export const Admin = () => {
           <div className="space-y-8">
             {loading ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[1,2,3,4,5,6,7,8,9].map(i => (
-                  <div key={i} className="h-28 bg-gray-100 rounded-lg animate-pulse" />
-                ))}
+                {[1,2,3,4,5,6,7,8,9].map(i => <div key={i} className="h-28 bg-gray-100 rounded-lg animate-pulse" />)}
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                <StatCard
-                  label="Total Students"
-                  value={stats?.totalStudents ?? students.length}
-                  icon={<Users className="w-5 h-5 text-[#00A5A7]" />}
-                  onClick={() => setActiveTab('students')}
-                />
-                <StatCard
-                  label="Total Landlords"
-                  value={stats?.totalLandlords ?? landlords.length}
-                  icon={<Home className="w-5 h-5 text-[#B8E986]" />}
-                  onClick={() => setActiveTab('landlords')}
-                />
-                <StatCard
-                  label="Total Listings"
-                  value={stats?.totalListings ?? '—'}
-                  icon={<TrendingUp className="w-5 h-5 text-[#FFC759]" />}
-                  onClick={() => navigate('/houses')}
-                />
-                <StatCard
-                  label="Total Bookings"
-                  value={stats?.totalBookings ?? '—'}
-                  icon={<BookOpen className="w-5 h-5 text-[#B19CD9]" />}
-                  onClick={() => setActiveTab('bookings')}
-                />
-                <StatCard
-                  label="Available Beds"
-                  value={stats?.availableBeds ?? '—'}
-                  icon={<Bed className="w-5 h-5 text-[#B8E986]" />}
-                />
-                <StatCard
-                  label="Occupied Beds"
-                  value={stats?.occupiedBeds ?? '—'}
-                  icon={<Bed className="w-5 h-5 text-[#FF6F61]" />}
-                />
-                <StatCard
-                  label="Pending Listings"
-                  value={stats?.pendingListings ?? '—'}
-                  icon={<Flag className="w-5 h-5 text-orange-400" />}
-                />
-                <StatCard
-                  label="Total Reports"
-                  value={stats?.totalReports ?? reportCount}
-                  icon={<Flag className="w-5 h-5 text-[#FF6F61]" />}
-                  onClick={() => setActiveTab('reports')}
-                />
-                <StatCard
-                  label="Total Bans"
-                  value={stats?.totalBans ?? bannedIds.size}
-                  icon={<ShieldAlert className="w-5 h-5 text-red-500" />}
-                />
+                <StatCard label="Total Students"   value={stats?.totalStudents   ?? students.length}  icon={<Users      className="w-5 h-5 text-[#00A5A7]" />}   onClick={() => setActiveTab('students')} />
+                <StatCard label="Total Landlords"  value={stats?.totalLandlords  ?? landlords.length} icon={<Home       className="w-5 h-5 text-[#B8E986]" />}   onClick={() => setActiveTab('landlords')} />
+                <StatCard label="Total Listings"   value={stats?.totalListings   ?? '—'}              icon={<TrendingUp className="w-5 h-5 text-[#FFC759]" />}   onClick={() => navigate('/houses')} />
+                <StatCard label="Total Bookings"   value={stats?.totalBookings   ?? '—'}              icon={<BookOpen   className="w-5 h-5 text-[#B19CD9]" />}   onClick={() => setActiveTab('bookings')} />
+                <StatCard label="Available Beds"   value={stats?.availableBeds   ?? '—'}              icon={<Bed        className="w-5 h-5 text-[#B8E986]" />} />
+                <StatCard label="Occupied Beds"    value={stats?.occupiedBeds    ?? '—'}              icon={<Bed        className="w-5 h-5 text-[#FF6F61]" />} />
+                <StatCard label="Pending Listings" value={stats?.pendingListings ?? '—'}              icon={<Flag       className="w-5 h-5 text-orange-400" />} />
+                <StatCard label="Total Reports"    value={stats?.totalReports    ?? reportCount}       icon={<Flag       className="w-5 h-5 text-[#FF6F61]" />}   onClick={() => setActiveTab('reports')} />
+                <StatCard label="Total Bans"       value={stats?.totalBans       ?? bannedIds.size}    icon={<ShieldAlert className="w-5 h-5 text-red-500" />} />
               </div>
             )}
 
@@ -842,14 +762,8 @@ export const Admin = () => {
                             <MapPin className="w-3 h-3" />
                             <span>{listing.address ? `${listing.address}, ` : ''}{listing.city}</span>
                           </div>
-                          <p className="text-[#717182] text-sm">
-                            By <span className="text-[#00A5A7]">{listing.landlordName}</span>
-                          </p>
-                          <p className="text-[#717182] text-xs mt-1">
-                            {new Date(listing.publishedAt).toLocaleDateString('en-GB', {
-                              day: '2-digit', month: 'short', year: 'numeric',
-                            })}
-                          </p>
+                          <p className="text-[#717182] text-sm">By <span className="text-[#00A5A7]">{listing.landlordName}</span></p>
+                          <p className="text-[#717182] text-xs mt-1">{formatDate(listing.publishedAt)}</p>
                         </div>
                       </div>
                     ))}
@@ -860,9 +774,7 @@ export const Admin = () => {
 
             {stats?.recentBookings && stats.recentBookings.length > 0 && (
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-[#34495E]">Recent Bookings</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle className="text-[#34495E]">Recent Bookings</CardTitle></CardHeader>
                 <CardContent>
                   <div className="space-y-3">
                     {stats.recentBookings.map(booking => (
@@ -890,9 +802,7 @@ export const Admin = () => {
         {activeTab === 'landlords' && (
           <div className="space-y-6">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-[#34495E]">Search Landlord by Email</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-[#34495E]">Search Landlord by Email</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex gap-3 flex-wrap">
                   <Input placeholder="landlord@example.com" value={landlordEmailInput}
@@ -927,12 +837,7 @@ export const Admin = () => {
                       }
                       onRemove={() => handleDeleteLandlord(foundLandlord.id)}
                       onUnban={foundLandlord.accountId
-                        ? () => handleUnban(
-                            foundLandlord.accountId,
-                            `${foundLandlord.firstName} ${foundLandlord.lastName}`,
-                            'landlord',
-                            foundLandlord.id
-                          )
+                        ? () => handleUnban(foundLandlord.accountId, `${foundLandlord.firstName} ${foundLandlord.lastName}`, 'landlord', foundLandlord.id)
                         : undefined}
                     />
                   </div>
@@ -978,9 +883,7 @@ export const Admin = () => {
         {activeTab === 'students' && (
           <div className="space-y-6">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-[#34495E]">Search Student by Email</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-[#34495E]">Search Student by Email</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex gap-3 flex-wrap">
                   <Input placeholder="student@example.com" value={studentEmailInput}
@@ -1015,12 +918,7 @@ export const Admin = () => {
                       }
                       onRemove={() => handleDeleteStudent(foundStudent.id)}
                       onUnban={foundStudent.accountId
-                        ? () => handleUnban(
-                            foundStudent.accountId,
-                            `${foundStudent.firstName} ${foundStudent.lastName}`,
-                            'student',
-                            foundStudent.id
-                          )
+                        ? () => handleUnban(foundStudent.accountId, `${foundStudent.firstName} ${foundStudent.lastName}`, 'student', foundStudent.id)
                         : undefined}
                     />
                   </div>
@@ -1068,8 +966,7 @@ export const Admin = () => {
             <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <CardTitle className="text-[#34495E] flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-[#00A5A7]" />
-                  All Bookings
+                  <BookOpen className="w-5 h-5 text-[#00A5A7]" />All Bookings
                 </CardTitle>
                 <CardDescription>Every booking made on the platform</CardDescription>
               </div>
@@ -1085,9 +982,7 @@ export const Admin = () => {
             </CardHeader>
             <CardContent>
               {bookingsLoading ? (
-                <div className="space-y-3">
-                  {[1,2,3,4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}
-                </div>
+                <div className="space-y-3">{[1,2,3,4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}</div>
               ) : bookings.length === 0 ? (
                 <div className="text-center py-12">
                   <BookOpen className="w-12 h-12 text-[#717182] mx-auto mb-3" />
@@ -1095,7 +990,7 @@ export const Admin = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {bookings.map((booking) => {
+                  {bookings.map(booking => {
                     const { label, color } = bookingStatusInfo(booking.status);
                     return (
                       <div key={booking.id} className="p-4 border rounded-lg space-y-2 hover:border-[#00A5A7]/30 transition-colors">
@@ -1105,7 +1000,7 @@ export const Admin = () => {
                             <span className="text-sm text-[#34495E] font-medium truncate">
                               {booking.listingTitle || `Listing #${booking.listingId}`}
                             </span>
-                            <span className="text-xs text-[#717182]">· Booking #{booking.id}</span>
+                            <span className="text-xs text-[#717182]">· #{booking.id}</span>
                           </div>
                           {booking.amount != null && (
                             <span className="text-sm text-[#FF6F61] font-semibold flex-shrink-0">
@@ -1113,40 +1008,18 @@ export const Admin = () => {
                             </span>
                           )}
                         </div>
-
                         <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
-                          {booking.studentName && (
-                            <span className="flex items-center gap-1">
-                              <User className="w-3.5 h-3.5" />
-                              Student: {booking.studentName}
-                            </span>
-                          )}
-                          {booking.landlordName && (
-                            <span className="flex items-center gap-1">
-                              <Home className="w-3.5 h-3.5" />
-                              Landlord: {booking.landlordName}
-                            </span>
-                          )}
-                          <span className="flex items-center gap-1">
-                            <Bed className="w-3.5 h-3.5" />
-                            Bed #{booking.bedId}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5" />
-                            {formatDate(booking.startDate)} → {formatDate(booking.endDate)}
-                          </span>
-                          {booking.durationInMonths != null && (
-                            <span>{booking.durationInMonths} month{booking.durationInMonths !== 1 ? 's' : ''}</span>
-                          )}
+                          {booking.studentName && <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" />{booking.studentName}</span>}
+                          {booking.landlordName && <span className="flex items-center gap-1"><Home className="w-3.5 h-3.5" />{booking.landlordName}</span>}
+                          <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5" />Bed #{booking.bedId}</span>
+                          <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{formatDate(booking.startDate)} → {formatDate(booking.endDate)}</span>
+                          {booking.durationInMonths != null && <span>{booking.durationInMonths}mo</span>}
                         </div>
-
-                        <div className="pt-1">
-                          <Button variant="outline" size="sm"
-                            onClick={() => navigate(`/house/${booking.listingId}`)}
-                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
-                            View Listing
-                          </Button>
-                        </div>
+                        <Button variant="outline" size="sm"
+                          onClick={() => navigate(`/house/${booking.listingId}`)}
+                          className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
+                          View Listing
+                        </Button>
                       </div>
                     );
                   })}
@@ -1159,6 +1032,8 @@ export const Admin = () => {
         {/* ════════ REPORTS ════════ */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
+
+            {/* Search by listing */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Reports by Listing</CardTitle>
@@ -1175,8 +1050,7 @@ export const Admin = () => {
                     <Search className="w-4 h-4 mr-2" />{listingReportsLoading ? 'Searching...' : 'Search'}
                   </Button>
                   {searchedListingId && (
-                    <Button variant="ghost"
-                      onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
+                    <Button variant="ghost" onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
                       className="text-[#717182]">Clear</Button>
                   )}
                 </div>
@@ -1192,22 +1066,19 @@ export const Admin = () => {
                     {listingReports.map((r, i) => {
                       const { label, color } = statusInfo(r.status);
                       return (
-                        <div key={i} className="p-3 border rounded-lg space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge className={`${color} border text-xs`}>{label}</Badge>
-                            <span className="text-xs text-[#717182]">
-                              {new Date(r.createdAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}
-                            </span>
+                        <div key={i} className="p-3 border rounded-lg space-y-2">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge className={`${color} border text-xs`}>{label}</Badge>
+                              <span className="text-xs text-[#717182]">{formatDate(r.createdAt)}</span>
+                            </div>
+                            <ReportDetailDialog report={r} />
                           </div>
                           <p className="text-sm text-[#34495E]">{r.reason}</p>
-                          <p className="text-xs text-[#717182]">
-                            Reporter:{' '}
-                            <UserInfoDialog email={r.reporterEmail}>
-                              <button className="font-medium text-[#00A5A7] hover:underline">
-                                {r.reporterEmail}
-                              </button>
-                            </UserInfoDialog>
-                          </p>
+                          <div className="flex gap-4 text-xs text-[#717182]">
+                            <span>Reporter: <UserInfoDialog accountId={r.reporterId} label={r.reporterId.slice(0,8) + '…'} /></span>
+                            <span>Reported: <UserInfoDialog accountId={r.reportedId} label={r.reportedId.slice(0,8) + '…'} /></span>
+                          </div>
                         </div>
                       );
                     })}
@@ -1216,12 +1087,13 @@ export const Admin = () => {
               </CardContent>
             </Card>
 
+            {/* All reports */}
             <Card>
               <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
                   <CardTitle className="text-[#34495E]">All Reports</CardTitle>
                   <CardDescription>
-                    Review and manage user reports. Click an email to view that user's account.
+                    Click an ID to view that user's account details. Click "View Details" for the full report.
                     {reports.length > 0 && !reports[0]?.id && (
                       <span className="text-amber-600 ml-2 text-xs">
                         ⚠ Backend must include "id" in GetAllReports to enable Resolve/Reject.
@@ -1258,60 +1130,58 @@ export const Admin = () => {
                             <div className="space-y-1 flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Badge className={`${color} border text-xs`}>{label}</Badge>
-                                <span className="text-xs text-[#717182]">
-                                  {new Date(report.createdAt).toLocaleDateString('en-GB', {
-                                    day:'2-digit', month:'short', year:'numeric',
-                                  })}
-                                </span>
-                                <span className="text-xs text-[#717182]">
-                                  {report.type === 1 ? '📋 Listing' : '👤 User'}
-                                </span>
+                                <span className="text-xs text-[#717182]">{formatDate(report.createdAt)}</span>
+                                <span className="text-xs text-[#717182]">{report.type === 1 ? '📋 Listing' : '👤 User'}</span>
                                 {report.id && <span className="text-xs text-[#717182]">ID: #{report.id}</span>}
                               </div>
-                              <p className="text-sm text-[#34495E]">{report.reason}</p>
-                              <p className="text-xs text-[#717182] flex flex-wrap items-center gap-1">
-                                <span>Reporter:</span>
-                                <UserInfoDialog email={report.reporterEmail}>
-                                  <button className="font-medium text-[#00A5A7] hover:underline">
-                                    {report.reporterEmail}
-                                  </button>
-                                </UserInfoDialog>
-                                <span>·</span>
-                                <span>Reported:</span>
-                                <UserInfoDialog email={report.reportedEmail}>
-                                  <button className="font-medium text-[#00A5A7] hover:underline">
-                                    {report.reportedEmail}
-                                  </button>
-                                </UserInfoDialog>
-                              </p>
+
+                              {/* Reason preview — truncated */}
+                              <p className="text-sm text-[#34495E] line-clamp-2">{report.reason}</p>
+
+                              {/* Reporter / Reported — clickable account IDs */}
+                              <div className="flex flex-wrap gap-3 text-xs text-[#717182]">
+                                <span className="flex items-center gap-1">
+                                  Reporter:
+                                  <UserInfoDialog accountId={report.reporterId} label={report.reporterId.slice(0,8) + '…'} />
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  Reported:
+                                  <UserInfoDialog accountId={report.reportedId} label={report.reportedId.slice(0,8) + '…'} />
+                                </span>
+                              </div>
                             </div>
 
-                            {report.status === 1 && (
-                              <div className="flex gap-2 flex-shrink-0">
-                                <Button size="sm" disabled={isUpdating}
-                                  onClick={() => handleUpdateReport(report, index, 2)}
-                                  className="bg-green-600 hover:bg-green-700 text-white">
-                                  <CheckCircle className="w-4 h-4 mr-1" />
-                                  {isUpdating ? '…' : 'Resolve'}
-                                </Button>
-                                <Button size="sm" variant="outline" disabled={isUpdating}
-                                  onClick={() => handleUpdateReport(report, index, 3)}
-                                  className="border-gray-300 text-gray-500 hover:bg-gray-100">
-                                  <XCircle className="w-4 h-4 mr-1" />
-                                  {isUpdating ? '…' : 'Reject'}
-                                </Button>
-                              </div>
-                            )}
-                            {report.status === 2 && (
-                              <span className="flex items-center gap-1 text-green-600 text-sm flex-shrink-0">
-                                <CheckCircle className="w-4 h-4" />Resolved
-                              </span>
-                            )}
-                            {report.status === 3 && (
-                              <span className="flex items-center gap-1 text-gray-400 text-sm flex-shrink-0">
-                                <XCircle className="w-4 h-4" />Rejected
-                              </span>
-                            )}
+                            {/* Action buttons */}
+                            <div className="flex flex-col gap-2 flex-shrink-0">
+                              {/* View Details button — always visible */}
+                              <ReportDetailDialog report={report} />
+
+                              {/* Resolve / Reject — pending only */}
+                              {report.status === 1 && (
+                                <div className="flex gap-2">
+                                  <Button size="sm" disabled={isUpdating}
+                                    onClick={() => handleUpdateReport(report, index, 2)}
+                                    className="bg-green-600 hover:bg-green-700 text-white">
+                                    <CheckCircle className="w-4 h-4 mr-1" />{isUpdating ? '…' : 'Resolve'}
+                                  </Button>
+                                  <Button size="sm" variant="outline" disabled={isUpdating}
+                                    onClick={() => handleUpdateReport(report, index, 3)}
+                                    className="border-gray-300 text-gray-500 hover:bg-gray-100">
+                                    <XCircle className="w-4 h-4 mr-1" />{isUpdating ? '…' : 'Reject'}
+                                  </Button>
+                                </div>
+                              )}
+                              {report.status === 2 && (
+                                <span className="flex items-center gap-1 text-green-600 text-sm">
+                                  <CheckCircle className="w-4 h-4" />Resolved
+                                </span>
+                              )}
+                              {report.status === 3 && (
+                                <span className="flex items-center gap-1 text-gray-400 text-sm">
+                                  <XCircle className="w-4 h-4" />Rejected
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
