@@ -202,24 +202,16 @@ export const HouseDetail = () => {
   const [listing, setListing]               = useState<Listing | null>(null);
   const [loading, setLoading]               = useState(true);
   const [selectedBedId, setSelectedBedId]   = useState<number | null>(null);
-
-  // 'bed' | 'room' — tracks which booking type is in progress
   const [bookingMode, setBookingMode]       = useState<'bed' | 'room'>('bed');
-  // When booking a whole room, store which room
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
-
   const [durationMonths, setDurationMonths] = useState<number | ''>(1);
   const [bookingLoading, setBookingLoading] = useState(false);
 
-  // Payment modal state
-  const [paymentOpen, setPaymentOpen]       = useState(false);
+  const [paymentOpen, setPaymentOpen]           = useState(false);
   const [pendingBookingId, setPendingBookingId] = useState<number | null>(null);
-  const [pendingAmount, setPendingAmount]   = useState<number | undefined>(undefined);
+  const [pendingAmount, setPendingAmount]       = useState<number | undefined>(undefined);
+  const [paymentDone, setPaymentDone]           = useState(false);
 
-  // Only true after payment succeeds — gates contact visibility
-  const [paymentDone, setPaymentDone]       = useState(false);
-
-  // Landlord: students who booked beds in this listing
   const [bookedStudents, setBookedStudents] = useState<BookingInfo[]>([]);
 
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
@@ -241,7 +233,7 @@ export const HouseDetail = () => {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Landlord: fetch booked students for this listing
+  // Landlord: fetch booked students
   useEffect(() => {
     if (!user || user.type !== 'landlord' || !id || !user.id) return;
     api.get<any>(`/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=100`)
@@ -260,18 +252,12 @@ export const HouseDetail = () => {
       .catch(() => { /* silently fail */ });
   }, [user, id]);
 
-  // ─── Step 1: Create booking → open payment modal ──────────────────────────
+  // ─── Handle Booking ────────────────────────────────────────────────────────
   const handleBooking = async () => {
     if (bookingMode === 'bed') {
-      if (!selectedBedId) {
-        toast.error('Please select a bed.');
-        return;
-      }
+      if (!selectedBedId) { toast.error('Please select a bed.'); return; }
     } else {
-      if (!selectedRoomId) {
-        toast.error('Please select a room.');
-        return;
-      }
+      if (!selectedRoomId) { toast.error('Please select a room.'); return; }
     }
 
     if (!durationMonths || Number(durationMonths) < 1) {
@@ -281,40 +267,63 @@ export const HouseDetail = () => {
 
     setBookingLoading(true);
     try {
-      let res: any;
-      let totalPrice: number | undefined;
-
       if (bookingMode === 'bed') {
-        res = await api.post<any>('/Booking/CreateBooking', {
+        // ── Single bed booking ─────────────────────────────────────────────
+        const res = await api.post<any>('/Booking/CreateBooking', {
           bedId: selectedBedId,
           durationInMonths: Number(durationMonths),
         });
-        totalPrice = listing?.rooms
+
+        const bookingId =
+          typeof res === 'number' ? res : res?.id ?? res?.bookingId ?? null;
+
+        if (!bookingId) {
+          toast.error('Booking created but no ID returned. Please contact support.');
+          return;
+        }
+
+        const totalPrice = listing?.rooms
           .flatMap(r => r.beds.map(b => ({ id: b.id, price: r.pricePerBed })))
           .find(b => b.id === selectedBedId)?.price;
+
+        setPendingBookingId(bookingId);
+        setPendingAmount(totalPrice);
+        setPaymentOpen(true);
+
       } else {
-        // Book entire room — send all bed IDs in that room
+        // ── Whole room booking — one POST per bed ──────────────────────────
         const room = listing?.rooms.find(r => r.id === selectedRoomId);
-        res = await api.post<any>('/Booking/CreateBooking', {
-          roomId: selectedRoomId,
-          durationInMonths: Number(durationMonths),
-        });
-        totalPrice = room ? room.pricePerBed * room.beds.length : undefined;
+        if (!room) { toast.error('Room not found.'); return; }
+
+        const availableRoomBeds = room.beds.filter(b => !b.isBooked);
+        if (availableRoomBeds.length === 0) {
+          toast.error('No available beds in this room.');
+          return;
+        }
+
+        // Sequential requests — one booking per bed
+        const bookingIds: number[] = [];
+        for (const bed of availableRoomBeds) {
+          const res = await api.post<any>('/Booking/CreateBooking', {
+            bedId: bed.id,
+            durationInMonths: Number(durationMonths),
+          });
+          const bookingId =
+            typeof res === 'number' ? res : res?.id ?? res?.bookingId ?? null;
+          if (bookingId) bookingIds.push(bookingId);
+        }
+
+        if (bookingIds.length === 0) {
+          toast.error('Failed to create bookings. Please contact support.');
+          return;
+        }
+
+        // Open payment modal using first booking ID; amount = all beds × price
+        const totalPrice = room.pricePerBed * availableRoomBeds.length;
+        setPendingBookingId(bookingIds[0]);
+        setPendingAmount(totalPrice);
+        setPaymentOpen(true);
       }
-
-      const bookingId =
-        typeof res === 'number'
-          ? res
-          : res?.id ?? res?.bookingId ?? null;
-
-      if (!bookingId) {
-        toast.error('Booking created but no ID returned. Please contact support.');
-        return;
-      }
-
-      setPendingBookingId(bookingId);
-      setPendingAmount(totalPrice);
-      setPaymentOpen(true);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Booking failed.');
     } finally {
@@ -322,7 +331,7 @@ export const HouseDetail = () => {
     }
   };
 
-  // ─── Step 2: Payment success → refresh listing, show contact ─────────────
+  // ─── Payment success ───────────────────────────────────────────────────────
   const handlePaymentSuccess = async () => {
     setPaymentDone(true);
     setPendingBookingId(null);
@@ -380,32 +389,35 @@ export const HouseDetail = () => {
   const availableBeds = listing.rooms.flatMap(room =>
     room.beds.filter(b => !b.isBooked).map(b => ({ ...b, pricePerBed: room.pricePerBed }))
   );
+
   const selectedBedPrice = listing.rooms
     .flatMap(r => r.beds.map(b => ({ ...b, price: r.pricePerBed })))
     .find(b => b.id === selectedBedId)?.price;
 
-  const selectedRoom = listing.rooms.find(r => r.id === selectedRoomId);
+  const selectedRoom        = listing.rooms.find(r => r.id === selectedRoomId);
   const selectedRoomTotalPrice = selectedRoom
     ? selectedRoom.pricePerBed * selectedRoom.beds.length
     : undefined;
 
-  // Active price based on mode
-  const activePrice = bookingMode === 'bed' ? selectedBedPrice : selectedRoomTotalPrice;
-  const totalWithFees = activePrice && durationMonths
+  const activePrice    = bookingMode === 'bed' ? selectedBedPrice : selectedRoomTotalPrice;
+  const totalWithFees  = activePrice && durationMonths
     ? Math.round(activePrice * Number(durationMonths) * 1.1)
     : undefined;
 
-  const landlordName = getLandlordName(listing);
-  const isOwnListing = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
-
-  const showContact = listing.canViewContact || paymentDone;
+  const landlordName  = getLandlordName(listing);
+  const isOwnListing  = user?.type === 'landlord' && String(listing.landlordId) === String(user.id);
+  const showContact   = listing.canViewContact || paymentDone;
   const bookingComplete = paymentDone || listing.canViewContact;
 
   return (
     <div className="min-h-screen bg-white">
 
       {lightboxOpen && (
-        <Lightbox images={lightboxImages} initialIndex={lightboxIndex} onClose={() => setLightboxOpen(false)} />
+        <Lightbox
+          images={lightboxImages}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxOpen(false)}
+        />
       )}
 
       {pendingBookingId !== null && (
@@ -442,11 +454,16 @@ export const HouseDetail = () => {
                   <CarouselContent>
                     {allImages.map((image, index) => (
                       <CarouselItem key={index}>
-                        <div className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer"
-                          onClick={() => openLightbox(allImages, index)}>
-                          <img src={prefixImage(image)} alt={`${listing.title} - Image ${index + 1}`}
+                        <div
+                          className="relative aspect-video rounded-lg overflow-hidden group cursor-pointer"
+                          onClick={() => openLightbox(allImages, index)}
+                        >
+                          <img
+                            src={prefixImage(image)}
+                            alt={`${listing.title} - Image ${index + 1}`}
                             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 flex items-center justify-center">
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/50 rounded-full p-3">
                               <ZoomIn className="w-6 h-6 text-white" />
@@ -527,22 +544,23 @@ export const HouseDetail = () => {
                 <div className="space-y-4">
                   {listing.rooms.map((room, roomIndex) => {
                     const allBedsAvailable = room.beds.length > 0 && room.beds.every(b => !b.isBooked);
-                    const isRoomSelected = selectedRoomId === room.id && bookingMode === 'room';
+                    const isRoomSelected   = selectedRoomId === room.id && bookingMode === 'room';
 
                     return (
                       <div key={room.id} className="border rounded-lg p-4">
+
+                        {/* Room header */}
                         <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
                           <div className="flex items-center gap-3 flex-wrap">
                             <h4 className="text-[#34495E]">Room {roomIndex + 1}</h4>
 
-                            {/* Book a Room button — students only, all beds available, booking not complete */}
+                            {/* Book a Room button — only when all beds are free */}
                             {user?.type === 'student' && !bookingComplete && allBedsAvailable && (
                               <Button
                                 size="sm"
                                 variant={isRoomSelected ? 'default' : 'outline'}
                                 onClick={() => {
                                   if (isRoomSelected) {
-                                    // Deselect room
                                     setSelectedRoomId(null);
                                     setBookingMode('bed');
                                   } else {
@@ -568,14 +586,21 @@ export const HouseDetail = () => {
                           </span>
                         </div>
 
+                        {/* Room images */}
                         {room.roomImages.length > 0 && (
                           <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
                             {room.roomImages.map((img, i) => (
-                              <div key={i} className="relative flex-shrink-0 group cursor-pointer"
-                                onClick={() => openLightbox(room.roomImages, i)}>
-                                <img src={prefixImage(img)} alt={`Room ${roomIndex + 1} image ${i + 1}`}
+                              <div
+                                key={i}
+                                className="relative flex-shrink-0 group cursor-pointer"
+                                onClick={() => openLightbox(room.roomImages, i)}
+                              >
+                                <img
+                                  src={prefixImage(img)}
+                                  alt={`Room ${roomIndex + 1} image ${i + 1}`}
                                   className="h-24 w-36 object-cover rounded transition-transform group-hover:scale-[1.03]"
-                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                />
                                 <div className="absolute inset-0 rounded bg-black/0 group-hover:bg-black/25 flex items-center justify-center">
                                   <ZoomIn className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
                                 </div>
@@ -584,6 +609,7 @@ export const HouseDetail = () => {
                           </div>
                         )}
 
+                        {/* Bed buttons */}
                         <div className="flex flex-wrap gap-2">
                           {room.beds.map(bed => (
                             <button
@@ -622,7 +648,7 @@ export const HouseDetail = () => {
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-4">
 
-                {/* Contact — only after payment succeeds */}
+                {/* Contact */}
                 {showContact ? (
                   <div className="space-y-3">
                     <h3 className="text-[#34495E] font-semibold">Landlord Contact</h3>
@@ -654,7 +680,9 @@ export const HouseDetail = () => {
                 {/* Booking form — students only, hidden after payment */}
                 {user?.type === 'student' && !bookingComplete && (
                   <div className="space-y-3 border-t pt-4">
-                    <h3 className="text-[#34495E] font-semibold">Book a Bed</h3>
+                    <h3 className="text-[#34495E] font-semibold">
+                      {bookingMode === 'room' ? 'Book Entire Room' : 'Book a Bed'}
+                    </h3>
 
                     {/* Selected bed summary */}
                     {selectedBedId && bookingMode === 'bed' && (
@@ -754,7 +782,7 @@ export const HouseDetail = () => {
                     </div>
                   )}
 
-                  {/* Landlord: booked students list with report buttons */}
+                  {/* Landlord: booked students */}
                   {isOwnListing && (
                     <div className="mt-4 pt-4 border-t">
                       <h4 className="text-[#34495E] font-medium text-sm mb-3">
