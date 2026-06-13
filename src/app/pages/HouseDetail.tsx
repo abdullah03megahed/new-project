@@ -236,7 +236,7 @@ export const HouseDetail = () => {
   // Landlord: fetch booked students
   useEffect(() => {
     if (!user || user.type !== 'landlord' || !id || !user.id) return;
-    api.get<any>(`/Booking/GetLandLordBookings/${user.id}?PageIndex=1&PageSize=100`)
+    api.get<any>(`/Booking/GetLandLordBookings/PageIndex=1&PageSize=100`)
       .then(async data => {
         const listingBookings = (data.data || []).filter(
           (b: any) => String(b.listingId) === String(id)
