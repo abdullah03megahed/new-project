@@ -272,6 +272,7 @@ export const HouseDetail = () => {
         const res = await api.post<any>('/Booking/CreateBooking', {
           bedId: selectedBedId,
           durationInMonths: Number(durationMonths),
+          type = 1,
         });
 
         const bookingId =
@@ -307,6 +308,7 @@ export const HouseDetail = () => {
           const res = await api.post<any>('/Booking/CreateBooking', {
             bedId: bed.id,
             durationInMonths: Number(durationMonths),
+            type = 2,
           });
           const bookingId =
             typeof res === 'number' ? res : res?.id ?? res?.bookingId ?? null;
