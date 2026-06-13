@@ -304,9 +304,8 @@ export const HouseDetail = () => {
 
         // Sequential requests — one booking per bed
         const bookingIds: number[] = [];
-        for (const bed of availableRoomBeds) {
           const res = await api.post<any>('/Booking/CreateBooking', {
-            bedId: bed.id,
+            roomId: selectedroomid,
             durationInMonths: Number(durationMonths),
             type : 2 ,
           });
