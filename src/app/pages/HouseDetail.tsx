@@ -271,6 +271,7 @@ export const HouseDetail = () => {
         // ── Single bed booking ─────────────────────────────────────────────
         const res = await api.post<any>('/Booking/CreateBooking', {
           bedId: selectedBedId,
+          roomId: selectedRoomId,
           durationInMonths: Number(durationMonths),
           type: 1,
         });
