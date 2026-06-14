@@ -45,12 +45,14 @@ interface SubscriptionDto {
 }
 
 // Minimal summary returned by GetLandLordBookings list endpoint
+// NOTE: no landlordId path param — the API infers it from the auth token
 interface BookingSummary {
   id: number;
   startDate: string;
   endDate: string;
   listingId: number;
   bedId: number;
+  roomId: number;
 }
 
 interface PaginatedBookings {
@@ -62,16 +64,16 @@ interface BookingDetail {
   id: number;
   startDate: string;
   endDate: string;
-  status: number;       // 1=Active, 2=Cancelled, 3=Completed
+  status: number;      // 1=Pending, 2=Cancelled, 3=Completed, 4=Ended, 5=PendingTransfer
   studentId: number;
   bedId: number;
   listingId: number;
-  landLordId: number;
+  landLordId: number;  // ← capital L (backend spelling)
   studentName: string;
   roomId: number;
   landlordName: string;
   amount: number;
-  type: number;         // 1=Single Bed, 2=Entire Room
+  type: number;        // 1=Single Bed, 2=Entire Room
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -90,10 +92,13 @@ const PLAN_STYLES: Record<string, { color: string; bg: string; label: string }> 
   professional: { color: '#FFC759', bg: 'rgba(255,199,89,0.12)',  label: 'Professional' },
 };
 
+// BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
 const bookingStatusInfo = (s: number) => {
-  if (s === 1) return { label: 'Active',    color: 'bg-green-100 text-green-700 border-green-200' };
-  if (s === 2) return { label: 'Cancelled', color: 'bg-gray-100 text-gray-500 border-gray-200' };
-  if (s === 3) return { label: 'Completed', color: 'bg-blue-100 text-blue-700 border-blue-200' };
+  if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 3) return { label: 'Completed',        color: 'bg-blue-100 text-blue-700 border-blue-200' };
+  if (s === 4) return { label: 'Ended',            color: 'bg-purple-100 text-purple-700 border-purple-200' };
+  if (s === 5) return { label: 'Pending Transfer', color: 'bg-orange-100 text-orange-700 border-orange-200' };
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
@@ -104,6 +109,10 @@ const formatDate = (d: string) => {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
+
+// A bed is "actively booked" when its booking status is Pending(1) or PendingTransfer(5).
+// Cancelled/Completed/Ended beds are free again.
+const isActiveBookingStatus = (s: number) => s === 1 || s === 5;
 
 // ─── Booking Detail Dialog ────────────────────────────────────────────────────
 
@@ -209,13 +218,13 @@ export const Dashboard = () => {
   const [loading, setLoading]           = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionDto | null>(null);
 
-  // Resolved numeric landlord profile ID (may differ from user.id which could be accountId)
-  const [landlordProfileId, setLandlordProfileId] = useState<string | null>(null);
-
-  // Full booking details
+  // Full booking details (fetched once when bookings tab is first opened)
   const [bookings, setBookings]               = useState<BookingDetail[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [bookingsFetched, setBookingsFetched] = useState(false);
+
+  // Set of bedIds that are actively booked — used to correct listing bed counts
+  const [bookedBedIds, setBookedBedIds] = useState<Set<number>>(new Set());
 
   // Detail dialog
   const [selectedBooking, setSelectedBooking] = useState<BookingDetail | null>(null);
@@ -239,33 +248,20 @@ export const Dashboard = () => {
 
   const profileIncomplete = !user.nationalId;
 
-  // ─── Fetch listings, subscription, and resolve landlord numeric ID ──────────
+  // ─── Fetch listings & subscription ─────────────────────────────────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [listingsData, subData, profileData] = await Promise.allSettled([
+        const [listingsData, subData] = await Promise.allSettled([
           api.get<Listing[]>('/Listing/listingsByLandLord'),
           api.get<SubscriptionDto>('/Subscription'),
-          // Fetch landlord profile to get the definitive numeric ID used by booking endpoints
-          user.id
-            ? api.get<LandlordProfile>(`/LandLord/${user.id}`)
-            : user.email
-              ? api.get<LandlordProfile>(`/LandLord/Email?email=${encodeURIComponent(user.email)}`)
-              : Promise.reject('no id'),
         ]);
 
         if (listingsData.status === 'fulfilled') setListings(listingsData.value || []);
         else toast.error('Failed to load your listings.');
 
         if (subData.status === 'fulfilled') setSubscription(subData.value);
-
-        if (profileData.status === 'fulfilled' && profileData.value?.id) {
-          setLandlordProfileId(String(profileData.value.id));
-        } else if (user.id) {
-          // Fallback to whatever ID we have
-          setLandlordProfileId(String(user.id));
-        }
       } finally {
         setLoading(false);
       }
@@ -274,22 +270,20 @@ export const Dashboard = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Fetch bookings (lazy, once, after landlordProfileId is resolved) ───────
+  // ─── Fetch bookings (lazy, once, when bookings tab is first opened) ─────────
+  // FIX: /Booking/GetLandLordBookings takes NO path parameter — the server
+  // infers the landlord from the auth token. Only PageIndex/PageSize are accepted.
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    if (activeTab !== 'bookings' || bookingsFetched || !landlordProfileId) return;
+    if (activeTab !== 'bookings' || bookingsFetched) return;
     setBookingsLoading(true);
 
     const loadBookings = async () => {
       try {
-        console.log('[Dashboard] Fetching bookings for landlordProfileId:', landlordProfileId);
-
-        // Step 1: get the paginated summary list
+        // Step 1: get the paginated summary list (no path param!)
         const paged = await api.get<PaginatedBookings>(
-          `/Booking/GetLandLordBookings/${landlordProfileId}?PageIndex=1&PageSize=100`
+          '/Booking/GetLandLordBookings?PageIndex=1&PageSize=100'
         );
-
-        console.log('[Dashboard] Booking list response:', paged);
 
         const summaries: BookingSummary[] = paged?.data || [];
 
@@ -299,7 +293,7 @@ export const Dashboard = () => {
           return;
         }
 
-        // Step 2: fetch full detail for every booking id in parallel
+        // Step 2: fetch full detail for every booking in parallel to get status/amount/names
         const settled = await Promise.allSettled(
           summaries.map(s => api.get<BookingDetail>(`/Booking/GetBooking/${s.id}`))
         );
@@ -311,25 +305,33 @@ export const Dashboard = () => {
           }
           // Fallback: build a minimal record from the summary so it still renders
           return {
-            id: summary.id,
-            startDate: summary.startDate,
-            endDate: summary.endDate,
-            listingId: summary.listingId,
-            bedId: summary.bedId,
-            status: 1,
-            studentId: 0,
-            studentName: '',
-            roomId: 0,
-            landLordId: 0,
+            id:           summary.id,
+            startDate:    summary.startDate,
+            endDate:      summary.endDate,
+            listingId:    summary.listingId,
+            bedId:        summary.bedId,
+            roomId:       summary.roomId,
+            status:       1,
+            studentId:    0,
+            studentName:  '',
+            landLordId:   0,
             landlordName: '',
-            amount: 0,
-            type: 1,
+            amount:       0,
+            type:         1,
           } as BookingDetail;
         });
 
-        console.log('[Dashboard] Resolved booking details:', details);
         setBookings(details);
         setBookingsFetched(true);
+
+        // Build the set of actively-booked bed IDs so the properties tab can
+        // show accurate availability even before the user opens the bookings tab.
+        const activeIds = new Set(
+          details
+            .filter(b => isActiveBookingStatus(b.status))
+            .map(b => b.bedId)
+        );
+        setBookedBedIds(activeIds);
       } catch (err) {
         console.error('[Dashboard] Booking fetch error:', err);
         toast.error('Failed to load bookings.');
@@ -339,7 +341,8 @@ export const Dashboard = () => {
     };
 
     loadBookings();
-  }, [activeTab, bookingsFetched, landlordProfileId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, bookingsFetched]);
 
   const handleDelete = async (listingId: number) => {
     try {
@@ -360,17 +363,54 @@ export const Dashboard = () => {
     navigate('/add-house');
   };
 
-  // ─── Bed count helper — handles both populated beds[] and bedCount fallback ─
+  // ─── Bed count helper ───────────────────────────────────────────────────────
+  // The listing endpoint's beds[].isBooked field can be stale. We cross-reference
+  // with the live booking data (bookedBedIds) when available for accuracy.
   const getBedCounts = (listing: Listing) => {
     const allBeds = listing.rooms.flatMap(r => r.beds || []);
+
     if (allBeds.length > 0) {
-      return {
-        available: allBeds.filter(b => !b.isBooked).length,
-        total: allBeds.length,
-      };
+      const bookedCount = allBeds.filter(b => {
+        // If we have live booking data, use that; otherwise fall back to isBooked field
+        if (bookedBedIds.size > 0) return bookedBedIds.has(b.id);
+        return b.isBooked;
+      }).length;
+      return { available: allBeds.length - bookedCount, total: allBeds.length };
     }
-    // Fallback when beds array is empty: use bedCount field
+
+    // Fallback when beds array is empty: use bedCount field and booking data
     const total = listing.rooms.reduce((sum, r) => sum + (r.bedCount || 0), 0);
+
+    if (bookedBedIds.size > 0) {
+      // Count how many of our booked beds belong to this listing's rooms
+      const listingRoomIds = new Set(listing.rooms.map(r => r.id));
+      const bookedInListing = bookings.filter(
+        b => isActiveBookingStatus(b.status) && listingRoomIds.has(b.roomId)
+      ).length;
+      return { available: Math.max(0, total - bookedInListing), total };
+    }
+
+    return { available: total, total };
+  };
+
+  // Per-room bed count — same cross-reference logic
+  const getRoomBedCounts = (room: Room) => {
+    const beds = room.beds || [];
+    if (beds.length > 0) {
+      const bookedCount = beds.filter(b => {
+        if (bookedBedIds.size > 0) return bookedBedIds.has(b.id);
+        return b.isBooked;
+      }).length;
+      return { available: beds.length - bookedCount, total: beds.length };
+    }
+    // Fallback when no beds array
+    const total = room.bedCount || 0;
+    if (bookedBedIds.size > 0) {
+      const bookedInRoom = bookings.filter(
+        b => isActiveBookingStatus(b.status) && b.roomId === room.id
+      ).length;
+      return { available: Math.max(0, total - bookedInRoom), total };
+    }
     return { available: total, total };
   };
 
@@ -383,10 +423,10 @@ export const Dashboard = () => {
   const allPrices   = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
   const lowestPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
 
-  const activeBookingsCount = bookings.filter(b => b.status === 1).length;
+  const activeBookingsCount = bookings.filter(b => isActiveBookingStatus(b.status)).length;
 
-  const planKey    = subscription?.planName?.toLowerCase() ?? 'freemium';
-  const planStyle  = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
+  const planKey   = subscription?.planName?.toLowerCase() ?? 'freemium';
+  const planStyle = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
   const isPaidPlan = planKey !== 'freemium';
 
   return (
@@ -604,6 +644,7 @@ export const Dashboard = () => {
                           </div>
 
                           <div className="flex items-center gap-4 mb-3 flex-wrap text-sm">
+                            {/* FIX: use the corrected available/total from getBedCounts */}
                             <span className={`font-medium ${available === 0 ? 'text-[#FF6F61]' : 'text-[#00A5A7]'}`}>
                               {available}/{total} beds available
                             </span>
@@ -616,19 +657,15 @@ export const Dashboard = () => {
                             {listing.wifiAvailable && <Badge variant="outline" className="text-xs">WiFi</Badge>}
                           </div>
 
-                          {/* Per-room breakdown */}
+                          {/* Per-room breakdown using corrected getRoomBedCounts */}
                           {listing.rooms.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-3">
                               {listing.rooms.map((room, idx) => {
-                                const roomBeds = room.beds || [];
-                                const roomAvail = roomBeds.length > 0
-                                  ? roomBeds.filter(b => !b.isBooked).length
-                                  : room.bedCount;
-                                const roomTotal = roomBeds.length > 0 ? roomBeds.length : room.bedCount;
+                                const { available: rAvail, total: rTotal } = getRoomBedCounts(room);
                                 return (
                                   <span key={room.id}
                                     className="text-xs px-2 py-1 bg-gray-50 border rounded text-[#717182]">
-                                    Room {idx + 1}: {roomAvail}/{roomTotal} free
+                                    Room {idx + 1}: {rAvail}/{rTotal} free
                                     {room.pricePerBed > 0 && ` · EGP ${room.pricePerBed.toLocaleString()}`}
                                   </span>
                                 );
@@ -693,13 +730,7 @@ export const Dashboard = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Still waiting for landlordProfileId to resolve */}
-              {!landlordProfileId && !bookingsLoading ? (
-                <div className="text-center py-12">
-                  <div className="w-8 h-8 border-4 border-[#00A5A7] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-[#717182] text-sm">Resolving account…</p>
-                </div>
-              ) : bookingsLoading ? (
+              {bookingsLoading ? (
                 <div className="space-y-3">
                   {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse" />)}
                 </div>
