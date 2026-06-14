@@ -57,36 +57,39 @@ interface PaginatedReports {
   pageIndex: number; pageSize: number; count: number; data: Report[];
 }
 interface BookingDto {
-  id: number; studentId?: number; studentName?: string;
-  landlordId?: number; landlordName?: string;
-  listingId: number; listingTitle?: string;
-  bedId: number; startDate: string; endDate: string;
-  // status is always a number (1–5) matching BookingStatusDto enum,
-  // or -1 if the detail fetch failed (shown as "Details unavailable")
-  status: number;
-  amount?: number; durationInMonths?: number;
+  id: number;
+  studentId?: number;
+  studentName?: string;
+  landlordId?: number;
+  landlordName?: string;
+  listingId: number;
+  listingTitle?: string;
+  bedId: number;
+  roomId?: number;        // present when type === 2 (entire room)
+  startDate: string;
+  endDate: string;
+  status: number;         // 1=Pending, 2=Cancelled, 3=Completed, 4=Ended, 5=PendingTransfer, -1=fetch failed
+  amount?: number;
+  durationInMonths?: number;
+  type?: number;          // 1=Single Bed, 2=Entire Room
 }
 
-// ─── Raw shape returned by GET /Booking/GetBooking/{id} ───────────────────────
-// Note: the backend uses "landLordId" (capital L), not "landlordId"
 interface RawBookingDetail {
   id: number;
   startDate: string;
   endDate: string;
-  status: number;          // BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
+  status: number;
   studentId: number;
   bedId: number;
   listingId: number;
-  landLordId: number;      // ← capital L — backend spelling
+  landLordId: number;   // capital L — backend spelling
   studentName: string;
   roomId: number;
   landlordName: string;
   amount: number;
-  type: number;
+  type: number;         // 1=Single Bed, 2=Entire Room
 }
 
-// ─── Raw shape returned by GET /Booking/GetAllBookings ────────────────────────
-// This endpoint does NOT include status, names, or amount — only ids & dates.
 interface RawBookingListItem {
   id: number;
   startDate: string;
@@ -149,24 +152,17 @@ const statusInfo = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
 };
 
-// BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
-// status === -1 is a frontend sentinel meaning "detail fetch failed" (e.g. 401/403/404
-// from GetBooking/{id}), NOT a real backend value — shown distinctly from "Unknown".
 const bookingStatusInfo = (raw: number | string | undefined | null) => {
-  // Guard: treat missing/null/undefined as unknown immediately
-  if (raw === undefined || raw === null) {
+  if (raw === undefined || raw === null)
     return { label: 'Unknown', color: 'bg-gray-100 text-gray-400 border-gray-200' };
-  }
   const s = typeof raw === 'string' ? parseInt(raw, 10) : raw;
   if (isNaN(s)) return { label: 'Unknown', color: 'bg-gray-100 text-gray-400 border-gray-200' };
-
   if (s === -1) return { label: 'Details unavailable', color: 'bg-red-50 text-red-500 border-red-200' };
-  if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
-  if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
-  if (s === 3) return { label: 'Completed',        color: 'bg-blue-100 text-blue-700 border-blue-200' };
-  if (s === 4) return { label: 'Ended',            color: 'bg-purple-100 text-purple-700 border-purple-200' };
-  if (s === 5) return { label: 'Pending Transfer', color: 'bg-orange-100 text-orange-700 border-orange-200' };
-
+  if (s === 1)  return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  if (s === 2)  return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 3)  return { label: 'Completed',        color: 'bg-blue-100 text-blue-700 border-blue-200' };
+  if (s === 4)  return { label: 'Ended',            color: 'bg-purple-100 text-purple-700 border-purple-200' };
+  if (s === 5)  return { label: 'Pending Transfer', color: 'bg-orange-100 text-orange-700 border-orange-200' };
   return { label: `Status ${s}`, color: 'bg-gray-100 text-gray-400 border-gray-200' };
 };
 
@@ -249,11 +245,11 @@ async function unbanUser(accountId: string): Promise<void> {
 interface UserInfoDialogProps { accountId: string; label: string; }
 
 const UserInfoDialog = ({ accountId, label }: UserInfoDialogProps) => {
-  const [open, setOpen]           = useState(false);
-  const [loading, setLoading]     = useState(false);
-  const [result, setResult]       = useState<UserLookup | null>(null);
-  const [notFound, setNotFound]   = useState(false);
-  const [fetched, setFetched]     = useState(false);
+  const [open, setOpen]         = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState<UserLookup | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [fetched, setFetched]   = useState(false);
 
   const handleOpenChange = async (next: boolean) => {
     setOpen(next);
@@ -306,11 +302,11 @@ interface ListingInfoDialogProps { listingId: string; label: string; }
 
 const ListingInfoDialog = ({ listingId, label }: ListingInfoDialogProps) => {
   const navigate = useNavigate();
-  const [open, setOpen]           = useState(false);
-  const [loading, setLoading]     = useState(false);
-  const [result, setResult]       = useState<ListingLookup | null>(null);
-  const [notFound, setNotFound]   = useState(false);
-  const [fetched, setFetched]     = useState(false);
+  const [open, setOpen]         = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState<ListingLookup | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [fetched, setFetched]   = useState(false);
 
   const handleOpenChange = async (next: boolean) => {
     setOpen(next);
@@ -450,6 +446,7 @@ interface BookingDetailDialogProps { booking: BookingDto; }
 const BookingDetailDialog = ({ booking }: BookingDetailDialogProps) => {
   const navigate = useNavigate();
   const { label, color } = bookingStatusInfo(booking.status);
+  const isRoomBooking = booking.type === 2;
 
   return (
     <Dialog>
@@ -464,9 +461,12 @@ const BookingDetailDialog = ({ booking }: BookingDetailDialogProps) => {
             <BookOpen className="w-5 h-5 text-[#00A5A7]" />
             Booking #{booking.id}
           </DialogTitle>
-          <DialogDescription>Full details for this booking</DialogDescription>
+          <DialogDescription>
+            {isRoomBooking ? '🏠 Entire Room Booking' : '🛏 Single Bed Booking'}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
+
           {/* Status + Amount */}
           <div className="flex items-center justify-between flex-wrap gap-2">
             <Badge className={`${color} border text-sm px-3 py-1`}>{label}</Badge>
@@ -517,7 +517,7 @@ const BookingDetailDialog = ({ booking }: BookingDetailDialogProps) => {
             )}
           </div>
 
-          {/* Listing & Bed */}
+          {/* Listing & Bed or Room */}
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 bg-gray-50 rounded-lg border space-y-0.5">
               <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">Listing</p>
@@ -526,10 +526,23 @@ const BookingDetailDialog = ({ booking }: BookingDetailDialogProps) => {
               </p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg border space-y-0.5">
-              <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">Bed</p>
-              <p className="text-sm text-[#34495E] font-medium flex items-center gap-1.5">
-                <Bed className="w-3.5 h-3.5 text-[#717182]" />#{booking.bedId}
-              </p>
+              {isRoomBooking ? (
+                <>
+                  <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">Room</p>
+                  <p className="text-sm text-[#34495E] font-medium flex items-center gap-1.5">
+                    <Home className="w-3.5 h-3.5 text-[#717182]" />
+                    #{booking.roomId ?? '—'}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">Bed</p>
+                  <p className="text-sm text-[#34495E] font-medium flex items-center gap-1.5">
+                    <Bed className="w-3.5 h-3.5 text-[#717182]" />
+                    #{booking.bedId}
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
@@ -727,10 +740,10 @@ export const Admin = () => {
   const [listingReportsLoading, setListingReportsLoading] = useState(false);
   const [searchedListingId, setSearchedListingId]         = useState<string | null>(null);
 
-  const [bookings, setBookings]                         = useState<BookingDto[]>([]);
-  const [bookingCount, setBookingCount]                 = useState(0);
-  const [bookingStatusFilter, setBookingStatusFilter]   = useState<string>('all');
-  const [bookingsLoading, setBookingsLoading]           = useState(false);
+  const [bookings, setBookings]                       = useState<BookingDto[]>([]);
+  const [bookingCount, setBookingCount]               = useState(0);
+  const [bookingStatusFilter, setBookingStatusFilter] = useState<string>('all');
+  const [bookingsLoading, setBookingsLoading]         = useState(false);
 
   if (!user || user.type !== 'admin') {
     return (
@@ -802,8 +815,6 @@ export const Admin = () => {
     setBookingsLoading(true);
     try {
       const params = new URLSearchParams();
-      // NOTE: GetAllBookings does NOT return status/names — we enrich via GetBooking/{id}
-      // The status filter param is still sent so the backend can pre-filter the list
       if (bookingStatusFilter !== 'all') params.append('status', bookingStatusFilter);
       params.append('PageIndex', '1');
       params.append('PageSize', '100');
@@ -812,16 +823,6 @@ export const Admin = () => {
       const rawList: RawBookingListItem[] = Array.isArray(data) ? data : (data?.data || []);
       const totalCount: number = data?.count ?? rawList.length;
 
-      // Enrich each list item by fetching the full booking detail.
-      // GetBooking/{id} returns: id, startDate, endDate, status, studentId, bedId,
-      // listingId, landLordId (capital L!), studentName, roomId, landlordName, amount, type
-      //
-      // DEBUG: previously, any failure here (401/403/404/network) was silently
-      // swallowed and the booking was shown with status: 0 ("Status 0" badge,
-      // as seen in the UI). We now log the real error so the cause (auth vs.
-      // not-found vs. something else) is visible in the console, and use a
-      // distinct sentinel (-1) so these rows are visually distinguishable from
-      // a genuine unrecognized status code.
       const detailed: BookingDto[] = await Promise.all(
         rawList.map(async (b: RawBookingListItem): Promise<BookingDto> => {
           try {
@@ -830,20 +831,18 @@ export const Admin = () => {
               id:           full.id,
               startDate:    full.startDate,
               endDate:      full.endDate,
-              // ✅ FIX: status comes from the detail endpoint — always a number 1–5
               status:       full.status,
               studentId:    full.studentId,
               studentName:  full.studentName,
-              // ✅ FIX: backend spells this "landLordId" (capital L), not "landlordId"
-              landlordId:   full.landLordId,
+              landlordId:   full.landLordId,   // capital L from backend
               landlordName: full.landlordName,
               listingId:    full.listingId,
-              // listingTitle & durationInMonths are not in either endpoint — omit
               bedId:        full.bedId,
+              roomId:       full.roomId,        // ✅ include roomId
+              type:         full.type,          // ✅ include type (1=bed, 2=room)
               amount:       full.amount,
             };
           } catch (err) {
-            // Individual fetch failed — log the real reason for debugging.
             // eslint-disable-next-line no-console
             console.error(`[Admin] GetBooking/${b.id} failed:`, err);
             return {
@@ -852,7 +851,8 @@ export const Admin = () => {
               endDate:   b.endDate,
               listingId: b.listingId,
               bedId:     b.bedId,
-              status:    -1, // sentinel: renders as "Details unavailable"
+              roomId:    b.roomId,
+              status:    -1, // sentinel: "Details unavailable"
             };
           }
         })
@@ -1342,6 +1342,7 @@ export const Admin = () => {
                 <div className="space-y-3">
                   {bookings.map(booking => {
                     const { label, color } = bookingStatusInfo(booking.status);
+                    const isRoomBooking = booking.type === 2;
                     return (
                       <div key={booking.id} className="p-4 border rounded-lg space-y-2 hover:border-[#00A5A7]/30 transition-colors">
                         <div className="flex items-start justify-between flex-wrap gap-2">
@@ -1351,6 +1352,11 @@ export const Admin = () => {
                               {booking.listingTitle || `Listing #${booking.listingId}`}
                             </span>
                             <span className="text-xs text-[#717182]">· #{booking.id}</span>
+                            {isRoomBooking && (
+                              <Badge className="bg-[#B19CD9]/15 text-[#B19CD9] border-[#B19CD9]/30 border text-xs flex-shrink-0">
+                                Entire Room
+                              </Badge>
+                            )}
                           </div>
                           {booking.amount != null && (
                             <span className="text-sm text-[#FF6F61] font-semibold flex-shrink-0">
@@ -1361,9 +1367,11 @@ export const Admin = () => {
                         <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
                           {booking.studentName  && <span className="flex items-center gap-1"><User     className="w-3.5 h-3.5" />{booking.studentName}</span>}
                           {booking.landlordName && <span className="flex items-center gap-1"><Home     className="w-3.5 h-3.5" />{booking.landlordName}</span>}
-                          <span className="flex items-center gap-1"><Bed      className="w-3.5 h-3.5" />Bed #{booking.bedId}</span>
+                          {isRoomBooking
+                            ? <span className="flex items-center gap-1"><Home className="w-3.5 h-3.5" />Room #{booking.roomId}</span>
+                            : <span className="flex items-center gap-1"><Bed  className="w-3.5 h-3.5" />Bed #{booking.bedId}</span>
+                          }
                           <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{formatDate(booking.startDate)} → {formatDate(booking.endDate)}</span>
-                          {booking.durationInMonths != null && <span>{booking.durationInMonths}mo</span>}
                         </div>
                         <div className="flex gap-2">
                           <BookingDetailDialog booking={booking} />
