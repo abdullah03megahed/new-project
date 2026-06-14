@@ -12,6 +12,7 @@ interface Bed { id: number; isBooked: boolean; }
 interface Room {
   id: number; name: string; bedCount: number;
   pricePerBed: number; roomImages: string[]; beds: Bed[];
+  isFullyRented: boolean; canBookEntireRoom: boolean; canBookSingleBed: boolean;
 }
 export interface Listing {
   id: number; title: string; description: string;
@@ -36,6 +37,7 @@ export interface MatchedListing extends Listing {
   isFullyRented: boolean;
   overallScore: number;
   compatibilityLabel: string;
+  pricePerBed: number; // ✅ Added from API response
 }
 
 export const Houses = () => {
@@ -46,7 +48,7 @@ export const Houses = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [pageIndex, setPageIndex] = useState(1);
-  const [pageSize, setPageSize] = useState(10); // default 10, max 20
+  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
 
   // Roommate matching state
@@ -93,7 +95,6 @@ export const Houses = () => {
     fetchListings(1);
   }, [genderPreference, sortingOption, pageSize]);
 
-  // Any normal search/filter action drops us back out of match mode
   const exitMatchMode = () => {
     if (matchMode) setMatchMode(false);
   };
@@ -130,7 +131,6 @@ export const Houses = () => {
   };
 
   const handleFindMatch = async () => {
-    // Toggle off if already in match mode
     if (matchMode) {
       setMatchMode(false);
       return;
@@ -203,7 +203,7 @@ export const Houses = () => {
               </Select>
             </div>
 
-            {/* Per page — default 10, max 20 */}
+            {/* Per page */}
             <div className="space-y-1">
               <Label className="text-xs text-[#717182]">Per Page</Label>
               <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
@@ -290,8 +290,24 @@ export const Houses = () => {
               {matchedListings.map((listing) => (
                 <div key={listing.id} className="relative">
                   <HouseCard listing={listing} />
+
+                  {/* Compatibility badge */}
                   <div className="absolute top-3 right-3 z-10 bg-[#00A5A7] text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-md">
                     {listing.overallScore}% · {listing.compatibilityLabel}
+                  </div>
+
+                  {/* ✅ Price overlay at the bottom of the card */}
+                  <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1">
+                    {listing.pricePerMonth > 0 && (
+                      <span className="bg-white/90 backdrop-blur-sm text-[#34495E] text-xs font-semibold px-2.5 py-1 rounded-full shadow-sm border border-gray-100">
+                        {listing.pricePerMonth.toLocaleString()} EGP / month
+                      </span>
+                    )}
+                    {listing.pricePerBed > 0 && (
+                      <span className="bg-white/90 backdrop-blur-sm text-[#717182] text-xs px-2.5 py-1 rounded-full shadow-sm border border-gray-100">
+                        {listing.pricePerBed.toLocaleString()} EGP / bed
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
