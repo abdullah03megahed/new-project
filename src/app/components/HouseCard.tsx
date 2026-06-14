@@ -14,7 +14,7 @@ interface ListingCard {
   furnished: boolean;
   listingImages: string[];
   numberOfRooms: number;
-  pricePerBed: number;
+  pricePerBed?: number;
   rooms: {
     pricePerBed: number;
     beds: { isBooked: boolean }[];
@@ -56,7 +56,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
     : {
         id: listing.id,
         title: listing.title,
-        price: listing.pricePerBed,
+        price: listing.pricePerBed ?? 0,
         priceLabel: 'From' as string | null,
         location: `${listing.address}, ${listing.city}`,
         coverImage: listingImageUrl(listing.listingImages[0]),
@@ -133,7 +133,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
                 <span className="text-[#717182] text-xs mr-1">{card.priceLabel}</span>
               )}
               <span className="text-[#FF6F61]" style={{ fontSize: '18px', fontWeight: '600' }}>
-                EGP {card.price.toLocaleString()}
+                EGP {(card.price ?? 0).toLocaleString()}
               </span>
               <span className="text-[#717182] text-sm">/month</span>
             </div>
