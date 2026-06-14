@@ -130,21 +130,18 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
   const [loading, setLoading] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
 
-  const fetchDetail = () =>{
-    if(!bookingID) return;
-    setloading(true);
-    api.get<BookingDetail>('/Booking/GetBooking/${bookingID}')
-        .then(data => setDetail(data))
-        .catch(() => toast.error('Failedto load booking details.'))
-        .finally(() = >setLoading(fals));
-  };
-  useEffect(() => {
-    if (!open || !bookingId) return;
+  const fetchDetail = () => {
+    if (!bookingId) return;
     setLoading(true);
     api.get<BookingDetail>(`/Booking/GetBooking/${bookingId}`)
       .then(data => setDetail(data))
       .catch(() => toast.error('Failed to load booking details.'))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (!open || !bookingId) return;
+    fetchDetail();
   }, [open, bookingId]);
 
   const statusInfo = detail ? bookingStatusLabel(detail.status) : { label: '', color: '' };
@@ -261,7 +258,7 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
 
               {/* Cancel button — only shown when booking is Completed (3) or Pending Transfer (5) */}
 
-              {/* Cancel button — only shown when booking is Pending (status=1) */}
+              
               {showCancel && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
