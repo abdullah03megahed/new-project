@@ -12,6 +12,18 @@ import { Textarea } from '../components/ui/textarea';
 import { Home, Users, Moon } from 'lucide-react';
 import { toast } from 'sonner';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface StudentProfile {
+  id: number; firstName: string; lastName: string; birthDate: string;
+  age: number; homeTown: string; gender: number; bio: string;
+  facultyField: string; lookingForRoommate: boolean; sleepingHabits: number;
+  minBudget: number; maxBudget: number; nationalCard: string;
+  universityCard: string; email: string; phoneNumber: string; accountId: string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const egyptianGovernorates = [
   'Cairo', 'Giza', 'Alexandria', 'Fayoum', 'Aswan', 'Luxor',
   'Assiut', 'Sohag', 'Minya', 'Beni Suef', 'Qalyubia', 'Sharqia',
@@ -20,30 +32,36 @@ const egyptianGovernorates = [
   'South Sinai', 'Matruh', 'New Valley',
 ];
 
-const GENDER_MAP: Record<string, number> = { male: 1, female: 2 };
-const SLEEP_MAP: Record<string, number> = { 'Early Bird': 1, 'Night Owl': 2, 'Flexible': 3 };
+const GENDER_MAP: Record<string, number>  = { male: 1, female: 2 };
+const GENDER_REVERSE: Record<number, string> = { 1: 'male', 2: 'female' };
+const SLEEP_MAP: Record<string, number>   = { 'Early Bird': 1, 'Night Owl': 2, 'Flexible': 3 };
+const SLEEP_REVERSE: Record<number, string> = { 1: 'Early Bird', 2: 'Night Owl', 3: 'Flexible' };
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export const Matching = () => {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const [formData, setFormData] = useState({
-    firstName: user?.firstName || '',
-    lastName: user?.lastName || '',
-    birthDate: '',
-    gender: '',
-    homeTown: '',
-    facultyField: user?.faculty || '',
+    firstName:          user?.firstName || '',
+    lastName:           user?.lastName  || '',
+    birthDate:          '',
+    gender:             '',
+    homeTown:           '',
+    facultyField:       user?.faculty   || '',
     lookingForRoommate: true,
-    sleepingHabits: '',
-    minBudget: '',
-    maxBudget: '',
-    nationalCard: '',
-    universityCard: '',
-    bio: '',
+    sleepingHabits:     '',
+    minBudget:          '',
+    maxBudget:          '',
+    nationalCard:       '',
+    universityCard:     '',
+    bio:                '',
   });
 
+  // ── Route guard ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) {
       navigate('/login');
@@ -52,42 +70,94 @@ export const Matching = () => {
     }
   }, [user, navigate]);
 
+  // ── Pre-fill existing data ──────────────────────────────────────────────────
+  // When a student returns to finish an incomplete profile, we load whatever
+  // the backend already has and populate the form fields so they don't have to
+  // re-enter data they may have partially saved.
+  useEffect(() => {
+    if (!user || user.type !== 'student') return;
+
+    const fetchExisting = async () => {
+      try {
+        let existing: StudentProfile | null = null;
+
+        if (user.id) {
+          existing = await api.get<StudentProfile>(`/Student/${user.id}`);
+        } else if (user.email) {
+          existing = await api.get<StudentProfile>(
+            `/Student/Email?email=${encodeURIComponent(user.email)}`
+          );
+          if (existing?.id) updateUser({ id: String(existing.id) });
+        }
+
+        if (!existing) return;
+
+        // Map the server values back to the form's string-based keys
+        setFormData({
+          firstName:          existing.firstName          || '',
+          lastName:           existing.lastName           || '',
+          birthDate:          existing.birthDate
+                                ? existing.birthDate.split('T')[0]
+                                : '',
+          gender:             GENDER_REVERSE[existing.gender]       || '',
+          homeTown:           existing.homeTown           || '',
+          facultyField:       existing.facultyField       || '',
+          lookingForRoommate: existing.lookingForRoommate ?? true,
+          sleepingHabits:     SLEEP_REVERSE[existing.sleepingHabits] || '',
+          minBudget:          existing.minBudget > 0 ? String(existing.minBudget) : '',
+          maxBudget:          existing.maxBudget > 0 ? String(existing.maxBudget) : '',
+          nationalCard:       existing.nationalCard       || '',
+          universityCard:     existing.universityCard     || '',
+          bio:                existing.bio                || '',
+        });
+      } catch {
+        // Non-fatal: form just stays blank, user fills it from scratch
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+
+    fetchExisting();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.email]);
+
   if (!user || user.type !== 'student') return null;
 
+  // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       await api.post('/Student/CompleteProfile', {
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        birthDate: new Date(formData.birthDate).toISOString(),
-        gender: GENDER_MAP[formData.gender] || 1,
-        homeTown: formData.homeTown,
-        facultyField: formData.facultyField,
+        firstName:          formData.firstName,
+        lastName:           formData.lastName,
+        birthDate:          new Date(formData.birthDate).toISOString(),
+        gender:             GENDER_MAP[formData.gender] || 1,
+        homeTown:           formData.homeTown,
+        facultyField:       formData.facultyField,
         lookingForRoommate: formData.lookingForRoommate,
-        sleepingHabits: SLEEP_MAP[formData.sleepingHabits] || 1,
-        minBudget: Number(formData.minBudget) || 0,
-        maxBudget: Number(formData.maxBudget) || 0,
-        nationalCard: formData.nationalCard,
-        universityCard: formData.universityCard,
-        bio: formData.bio,
+        sleepingHabits:     SLEEP_MAP[formData.sleepingHabits] || 1,
+        minBudget:          Number(formData.minBudget)  || 0,
+        maxBudget:          Number(formData.maxBudget)  || 0,
+        nationalCard:       formData.nationalCard,
+        universityCard:     formData.universityCard,
+        bio:                formData.bio,
       });
 
       updateUser({
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        displayName: `${formData.firstName} ${formData.lastName}`,
-        dateOfBirth: formData.birthDate,
-        gender: formData.gender as 'male' | 'female',
-        homeTown: formData.homeTown,
-        faculty: formData.facultyField,
+        firstName:          formData.firstName,
+        lastName:           formData.lastName,
+        displayName:        `${formData.firstName} ${formData.lastName}`,
+        dateOfBirth:        formData.birthDate,
+        gender:             formData.gender as 'male' | 'female',
+        homeTown:           formData.homeTown,
+        faculty:            formData.facultyField,
         lookingForRoommate: formData.lookingForRoommate,
-        sleepCode: formData.sleepingHabits as 'Early Bird' | 'Night Owl' | 'Flexible',
-        minBudget: Number(formData.minBudget) || 0,
-        maxBudget: Number(formData.maxBudget) || 0,
-        bio: formData.bio,
-        nationalId: formData.nationalCard,
+        sleepCode:          formData.sleepingHabits as 'Early Bird' | 'Night Owl' | 'Flexible',
+        minBudget:          Number(formData.minBudget) || 0,
+        maxBudget:          Number(formData.maxBudget) || 0,
+        bio:                formData.bio,
+        nationalId:         formData.nationalCard,
       });
 
       toast.success('Profile completed!');
@@ -99,6 +169,15 @@ export const Matching = () => {
       setLoading(false);
     }
   };
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  if (profileLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-[#00A5A7] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#B19CD9]/10 via-white to-[#00A5A7]/5 py-12">
@@ -121,11 +200,19 @@ export const Matching = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>First Name</Label>
-                  <Input value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required className="h-12 border-[#00A5A7]/20" />
+                  <Input
+                    value={formData.firstName}
+                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                    required className="h-12 border-[#00A5A7]/20"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Last Name</Label>
-                  <Input value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required className="h-12 border-[#00A5A7]/20" />
+                  <Input
+                    value={formData.lastName}
+                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                    required className="h-12 border-[#00A5A7]/20"
+                  />
                 </div>
               </div>
 
@@ -144,7 +231,13 @@ export const Matching = () => {
 
               <div className="space-y-2">
                 <Label>Date of Birth</Label>
-                <Input type="date" value={formData.birthDate} onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })} required className="h-12 border-[#00A5A7]/20" max={new Date().toISOString().split('T')[0]} />
+                <Input
+                  type="date"
+                  value={formData.birthDate}
+                  onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
+                  required className="h-12 border-[#00A5A7]/20"
+                  max={new Date().toISOString().split('T')[0]}
+                />
               </div>
 
               <div className="space-y-2">
@@ -163,30 +256,59 @@ export const Matching = () => {
 
               <div className="space-y-2">
                 <Label>Faculty / Study Field</Label>
-                <Input placeholder="e.g., Engineering, Medicine, Business" value={formData.facultyField} onChange={(e) => setFormData({ ...formData, facultyField: e.target.value })} required className="h-12 border-[#00A5A7]/20" />
+                <Input
+                  placeholder="e.g., Engineering, Medicine, Business"
+                  value={formData.facultyField}
+                  onChange={(e) => setFormData({ ...formData, facultyField: e.target.value })}
+                  required className="h-12 border-[#00A5A7]/20"
+                />
               </div>
 
               <div className="space-y-2">
                 <Label>National ID Number</Label>
-                <Input placeholder="Enter your national ID" value={formData.nationalCard} onChange={(e) => setFormData({ ...formData, nationalCard: e.target.value })} required className="h-12 border-[#00A5A7]/20" />
+                <Input
+                  placeholder="Enter your national ID"
+                  value={formData.nationalCard}
+                  onChange={(e) => setFormData({ ...formData, nationalCard: e.target.value })}
+                  required className="h-12 border-[#00A5A7]/20"
+                />
               </div>
 
               <div className="space-y-2">
                 <Label>University Card Number <span className="text-[#717182] text-sm">(Optional)</span></Label>
-                <Input placeholder="Enter your university card number" value={formData.universityCard} onChange={(e) => setFormData({ ...formData, universityCard: e.target.value })} className="h-12 border-[#00A5A7]/20" />
+                <Input
+                  placeholder="Enter your university card number"
+                  value={formData.universityCard}
+                  onChange={(e) => setFormData({ ...formData, universityCard: e.target.value })}
+                  className="h-12 border-[#00A5A7]/20"
+                />
               </div>
 
               <div className="space-y-2">
                 <Label>Budget Range (EGP/month)</Label>
                 <div className="grid grid-cols-2 gap-4">
-                  <Input type="number" placeholder="Min budget" value={formData.minBudget} onChange={(e) => setFormData({ ...formData, minBudget: e.target.value })} required className="h-12 border-[#00A5A7]/20" />
-                  <Input type="number" placeholder="Max budget" value={formData.maxBudget} onChange={(e) => setFormData({ ...formData, maxBudget: e.target.value })} required className="h-12 border-[#00A5A7]/20" />
+                  <Input
+                    type="number" placeholder="Min budget"
+                    value={formData.minBudget}
+                    onChange={(e) => setFormData({ ...formData, minBudget: e.target.value })}
+                    required className="h-12 border-[#00A5A7]/20"
+                  />
+                  <Input
+                    type="number" placeholder="Max budget"
+                    value={formData.maxBudget}
+                    onChange={(e) => setFormData({ ...formData, maxBudget: e.target.value })}
+                    required className="h-12 border-[#00A5A7]/20"
+                  />
                 </div>
               </div>
 
               <div className="space-y-2">
                 <Label>Do you want a roommate?</Label>
-                <RadioGroup value={formData.lookingForRoommate ? 'yes' : 'no'} onValueChange={(v) => setFormData({ ...formData, lookingForRoommate: v === 'yes' })} className="flex gap-6">
+                <RadioGroup
+                  value={formData.lookingForRoommate ? 'yes' : 'no'}
+                  onValueChange={(v) => setFormData({ ...formData, lookingForRoommate: v === 'yes' })}
+                  className="flex gap-6"
+                >
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="yes" id="yes" className="border-[#00A5A7] text-[#00A5A7]" />
                     <Label htmlFor="yes" className="cursor-pointer">Yes</Label>
@@ -214,11 +336,20 @@ export const Matching = () => {
 
               <div className="space-y-2">
                 <Label>Bio <span className="text-[#717182] text-sm">(Optional)</span></Label>
-                <Textarea placeholder="Tell potential roommates about yourself..." value={formData.bio} onChange={(e) => setFormData({ ...formData, bio: e.target.value })} rows={3} className="border-[#00A5A7]/20" />
+                <Textarea
+                  placeholder="Tell potential roommates about yourself..."
+                  value={formData.bio}
+                  onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                  rows={3} className="border-[#00A5A7]/20"
+                />
               </div>
 
               <div className="pt-4">
-                <Button type="submit" disabled={loading} className="w-full h-12 bg-gradient-to-r from-[#00A5A7] to-[#00A5A7]/90 text-white shadow-lg" style={{ fontSize: '16px', fontWeight: '600' }}>
+                <Button
+                  type="submit" disabled={loading}
+                  className="w-full h-12 bg-gradient-to-r from-[#00A5A7] to-[#00A5A7]/90 text-white shadow-lg"
+                  style={{ fontSize: '16px', fontWeight: '600' }}
+                >
                   {loading ? 'Saving...' : 'Complete Profile & Find Matches'}
                 </Button>
               </div>
