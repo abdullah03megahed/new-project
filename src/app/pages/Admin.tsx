@@ -45,8 +45,9 @@ interface Student {
   facultyField?: string; homeTown?: string; accountId: string; isBanned?: boolean;
 }
 // GetAllReports: reporterId is always an account GUID.
-// reportedId is an account GUID for user reports (type !== 1), but a numeric
-// listing ID (as a string) for listing reports (type === 1).
+// reportedId is an account GUID for user reports, but a numeric
+// listing ID (as a string) for listing reports.
+// We detect which it is by checking if reportedId is purely numeric.
 interface Report {
   id?: number;
   reporterId: string;
@@ -113,6 +114,10 @@ const prefixImage = (img: string) => {
   return `${IMAGE_BASE}${img.startsWith('/') ? img.slice(1) : img}`;
 };
 
+// Returns true if the string is purely digits — meaning it's a listing ID, not a GUID.
+// GUIDs always contain hyphens; listing IDs are plain integers.
+const isNumericId = (val: string) => /^\d+$/.test((val ?? '').trim());
+
 const statusInfo = (s: number) => {
   if (s === 1) return { label: 'Pending',  color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
   if (s === 2) return { label: 'Resolved', color: 'bg-green-100 text-green-700 border-green-200' };
@@ -120,10 +125,13 @@ const statusInfo = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
 };
 
+// Fixed to match BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
 const bookingStatusInfo = (s: number) => {
-  if (s === 1) return { label: 'Active',    color: 'bg-green-100 text-green-700 border-green-200' };
-  if (s === 2) return { label: 'Cancelled', color: 'bg-gray-100 text-gray-500 border-gray-200' };
-  if (s === 3) return { label: 'Completed', color: 'bg-blue-100 text-blue-700 border-blue-200' };
+  if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 3) return { label: 'Completed',        color: 'bg-blue-100 text-blue-700 border-blue-200' };
+  if (s === 4) return { label: 'Ended',            color: 'bg-purple-100 text-purple-700 border-purple-200' };
+  if (s === 5) return { label: 'Pending Transfer', color: 'bg-orange-100 text-orange-700 border-orange-200' };
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
@@ -135,7 +143,6 @@ const formatDate = (d: string) => {
 const genderLabel = (g?: number) => (g === 1 ? 'Male' : g === 2 ? 'Female' : '—');
 
 // ─── Lookup user by accountId ─────────────────────────────────────────────────
-// Tries Student/Account first, then LandLord/Account
 async function lookupUserByAccountId(accountId: string): Promise<UserLookup | null> {
   try {
     const s = await api.get<any>(`/Student/Account/${accountId}`).catch(() => null);
@@ -174,7 +181,6 @@ async function lookupUserByAccountId(accountId: string): Promise<UserLookup | nu
 }
 
 // ─── Lookup listing by id ──────────────────────────────────────────────────────
-// Used for "Listing Report" reports, where reportedId is actually a listing ID.
 async function lookupListingById(listingId: string | number): Promise<ListingLookup | null> {
   try {
     const data = await api.get<any>(`/Listing/${listingId}`);
@@ -195,27 +201,22 @@ async function lookupListingById(listingId: string | number): Promise<ListingLoo
 }
 
 // ─── Unban API helper ───────────────────────────────────────────────────────────
-// PUT /Ban/UnBanUser/{userId} responds 200 OK with an EMPTY body. If the shared
-// `api` helper unconditionally calls response.json(), that throws
-// "Unexpected end of JSON input" even though the unban itself succeeded.
-// We swallow that *specific* error here so the unban still completes cleanly
-// and callers only see toast errors for genuine failures.
 async function unbanUser(accountId: string): Promise<void> {
   try {
     await api.put(`/Ban/UnBanUser/${accountId}`, {});
   } catch (err: unknown) {
     if (err instanceof Error && err.message.includes('Unexpected end of JSON input')) {
-      return; // request succeeded — response body was just empty
+      return;
     }
     throw err;
   }
 }
 
-// ─── User Info Dialog — looks up by accountId, shows details ─────────────────
+// ─── User Info Dialog ─────────────────────────────────────────────────────────
 
 interface UserInfoDialogProps {
   accountId: string;
-  label: string; // shown as the clickable button text
+  label: string;
 }
 
 const UserInfoDialog = ({ accountId, label }: UserInfoDialogProps) => {
@@ -299,11 +300,11 @@ const UserInfoDialog = ({ accountId, label }: UserInfoDialogProps) => {
   );
 };
 
-// ─── Listing Info Dialog — looks up a listing by id, shows details ────────────
+// ─── Listing Info Dialog ──────────────────────────────────────────────────────
 
 interface ListingInfoDialogProps {
   listingId: string;
-  label: string; // shown as the clickable button text
+  label: string;
 }
 
 const ListingInfoDialog = ({ listingId, label }: ListingInfoDialogProps) => {
@@ -394,17 +395,17 @@ const ListingInfoDialog = ({ listingId, label }: ListingInfoDialogProps) => {
 };
 
 // ─── Reported Entity Dialog ───────────────────────────────────────────────────
-// Picks the right lookup based on report.type:
-//  - type === 1 (Listing Report) -> reportedId is a listing ID -> ListingInfoDialog
-//  - otherwise (User Report)     -> reportedId is an account GUID -> UserInfoDialog
+// Detection strategy: if reportedId is purely numeric digits → listing ID.
+// If it contains hyphens (GUID format) → user accountId.
+// This is more reliable than trusting report.type from the backend.
 
 interface ReportedEntityDialogProps {
   report: Report;
-  compact?: boolean; // true = short label for list rows, false = descriptive label
+  compact?: boolean;
 }
 
 const ReportedEntityDialog = ({ report, compact = true }: ReportedEntityDialogProps) => {
-  if (report.type === 1) {
+  if (isNumericId(report.reportedId)) {
     return (
       <ListingInfoDialog
         listingId={report.reportedId}
@@ -428,6 +429,7 @@ interface ReportDetailDialogProps {
 
 const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
   const { label, color } = statusInfo(report.status);
+  const isListingReport = isNumericId(report.reportedId);
 
   return (
     <Dialog>
@@ -440,7 +442,7 @@ const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
         <DialogHeader>
           <DialogTitle className="text-[#34495E]">Report Details</DialogTitle>
           <DialogDescription>
-            {report.type === 1 ? '📋 Listing Report' : '👤 User Report'}
+            {isListingReport ? '📋 Listing Report' : '👤 User Report'}
             {report.id && ` · ID #${report.id}`}
           </DialogDescription>
         </DialogHeader>
@@ -477,13 +479,13 @@ const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
           {/* Reported */}
           <div className="space-y-1">
             <Label className="text-[#34495E] text-xs font-semibold">
-              {report.type === 1 ? 'Reported Listing' : 'Reported User'}
+              {isListingReport ? 'Reported Listing' : 'Reported User'}
             </Label>
             <div className="flex items-center gap-2 p-3 bg-[#FF6F61]/5 border border-[#FF6F61]/20 rounded-lg">
               <Flag className="w-4 h-4 text-[#FF6F61] flex-shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs text-[#717182] font-mono break-all">
-                  {report.type === 1 ? `Listing ID: ${report.reportedId}` : report.reportedId}
+                  {isListingReport ? `Listing ID: ${report.reportedId}` : report.reportedId}
                 </p>
                 <ReportedEntityDialog report={report} compact={false} />
               </div>
@@ -607,7 +609,6 @@ const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, 
       <p className="text-sm text-[#717182]">{email}</p>
       {extra}
     </div>
-    {/* ✅ Ban button always visible next to Remove — not just in search */}
     <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
       {accountId && !isBanned && (
         <BanDialog userId={accountId} userName={name} onBanned={onBanned ?? (() => {})} />
@@ -657,7 +658,7 @@ export const Admin = () => {
   const [loading, setLoading]     = useState(true);
   const [bannedIds, setBannedIds] = useState<Set<string>>(new Set());
 
-  // Banned users dialog (opened from the "Total Bans" stat card)
+  // Banned users dialog
   const [bansDialogOpen, setBansDialogOpen]         = useState(false);
   const [bannedUsersList, setBannedUsersList]       = useState<BannedEntry[]>([]);
   const [bannedUsersLoading, setBannedUsersLoading] = useState(false);
@@ -771,7 +772,7 @@ export const Admin = () => {
     } finally { setBookingsLoading(false); }
   };
 
-  // ─── Banned users dialog (Total Bans card) ──────────────────────────────────
+  // ─── Banned users dialog ────────────────────────────────────────────────────
 
   const fetchBannedUsersList = async () => {
     setBannedUsersLoading(true);
@@ -962,7 +963,7 @@ export const Admin = () => {
               </div>
             )}
 
-            {/* Banned Users Dialog — opened from the "Total Bans" stat card */}
+            {/* Banned Users Dialog */}
             <Dialog open={bansDialogOpen} onOpenChange={handleBansDialogOpenChange}>
               <DialogContent className="max-w-lg">
                 <DialogHeader>
@@ -1252,12 +1253,14 @@ export const Admin = () => {
                 <CardDescription>Every booking made on the platform</CardDescription>
               </div>
               <Select value={bookingStatusFilter} onValueChange={setBookingStatusFilter}>
-                <SelectTrigger className="w-40"><SelectValue placeholder="Filter" /></SelectTrigger>
+                <SelectTrigger className="w-44"><SelectValue placeholder="Filter" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Bookings</SelectItem>
-                  <SelectItem value="1">Active</SelectItem>
+                  <SelectItem value="1">Pending</SelectItem>
                   <SelectItem value="2">Cancelled</SelectItem>
                   <SelectItem value="3">Completed</SelectItem>
+                  <SelectItem value="4">Ended</SelectItem>
+                  <SelectItem value="5">Pending Transfer</SelectItem>
                 </SelectContent>
               </Select>
             </CardHeader>
@@ -1374,7 +1377,7 @@ export const Admin = () => {
                 <div>
                   <CardTitle className="text-[#34495E]">All Reports</CardTitle>
                   <CardDescription>
-                    Click an ID to view that user's account details. Click "View Details" for the full report.
+                    Click an ID to view account details. Click "View Details" for the full report.
                     {reports.length > 0 && !reports[0]?.id && (
                       <span className="text-amber-600 ml-2 text-xs">
                         ⚠ Backend must include "id" in GetAllReports to enable Resolve/Reject.
@@ -1405,6 +1408,7 @@ export const Admin = () => {
                     {reports.map((report, index) => {
                       const { label, color } = statusInfo(report.status);
                       const isUpdating = updatingReportIdx === index;
+                      const isListingReport = isNumericId(report.reportedId);
                       return (
                         <div key={index} className="p-4 border rounded-lg space-y-3">
                           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -1412,14 +1416,14 @@ export const Admin = () => {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Badge className={`${color} border text-xs`}>{label}</Badge>
                                 <span className="text-xs text-[#717182]">{formatDate(report.createdAt)}</span>
-                                <span className="text-xs text-[#717182]">{report.type === 1 ? '📋 Listing' : '👤 User'}</span>
+                                <span className="text-xs text-[#717182]">
+                                  {isListingReport ? '📋 Listing' : '👤 User'}
+                                </span>
                                 {report.id && <span className="text-xs text-[#717182]">ID: #{report.id}</span>}
                               </div>
 
-                              {/* Reason preview — truncated */}
                               <p className="text-sm text-[#34495E] line-clamp-2">{report.reason}</p>
 
-                              {/* Reporter / Reported — clickable account IDs (or listing for listing reports) */}
                               <div className="flex flex-wrap gap-3 text-xs text-[#717182]">
                                 <span className="flex items-center gap-1">
                                   Reporter:
@@ -1432,12 +1436,9 @@ export const Admin = () => {
                               </div>
                             </div>
 
-                            {/* Action buttons */}
                             <div className="flex flex-col gap-2 flex-shrink-0">
-                              {/* View Details button — always visible */}
                               <ReportDetailDialog report={report} />
 
-                              {/* Resolve / Reject — pending only */}
                               {report.status === 1 && (
                                 <div className="flex gap-2">
                                   <Button size="sm" disabled={isUpdating}
