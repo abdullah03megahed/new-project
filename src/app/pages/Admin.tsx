@@ -44,10 +44,6 @@ interface Student {
   email: string; phoneNumber?: string; gender?: number;
   facultyField?: string; homeTown?: string; accountId: string; isBanned?: boolean;
 }
-// GetAllReports: reporterId is always an account GUID.
-// reportedId is an account GUID for user reports, but a numeric
-// listing ID (as a string) for listing reports.
-// We detect which it is by checking if reportedId is purely numeric.
 interface Report {
   id?: number;
   reporterId: string;
@@ -65,12 +61,43 @@ interface BookingDto {
   landlordId?: number; landlordName?: string;
   listingId: number; listingTitle?: string;
   bedId: number; startDate: string; endDate: string;
-  status: number; amount?: number; durationInMonths?: number;
+  // status is always a number (1–5) matching BookingStatusDto enum
+  status: number;
+  amount?: number; durationInMonths?: number;
 }
+
+// ─── Raw shape returned by GET /Booking/GetBooking/{id} ───────────────────────
+// Note: the backend uses "landLordId" (capital L), not "landlordId"
+interface RawBookingDetail {
+  id: number;
+  startDate: string;
+  endDate: string;
+  status: number;          // BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
+  studentId: number;
+  bedId: number;
+  listingId: number;
+  landLordId: number;      // ← capital L — backend spelling
+  studentName: string;
+  roomId: number;
+  landlordName: string;
+  amount: number;
+  type: number;
+}
+
+// ─── Raw shape returned by GET /Booking/GetAllBookings ────────────────────────
+// This endpoint does NOT include status, names, or amount — only ids & dates.
+interface RawBookingListItem {
+  id: number;
+  startDate: string;
+  endDate: string;
+  listingId: number;
+  bedId: number;
+  roomId: number;
+}
+
 interface BanRecord { userId: string; isActive: boolean; }
 interface PaginatedBans { pageIndex: number; pageSize: number; count: number; data: BanRecord[]; }
 
-// Result of looking up a user by accountId
 interface UserLookup {
   kind: 'student' | 'landlord';
   name: string;
@@ -84,7 +111,6 @@ interface UserLookup {
   accountId: string;
 }
 
-// Result of looking up a listing by id
 interface ListingLookup {
   id: number;
   title: string;
@@ -96,7 +122,6 @@ interface ListingLookup {
   listingImages: string[];
 }
 
-// A banned account, enriched with profile info if we could resolve it
 interface BannedEntry {
   accountId: string;
   name: string;
@@ -114,8 +139,6 @@ const prefixImage = (img: string) => {
   return `${IMAGE_BASE}${img.startsWith('/') ? img.slice(1) : img}`;
 };
 
-// Returns true if the string is purely digits — meaning it's a listing ID, not a GUID.
-// GUIDs always contain hyphens; listing IDs are plain integers.
 const isNumericId = (val: string) => /^\d+$/.test((val ?? '').trim());
 
 const statusInfo = (s: number) => {
@@ -125,25 +148,22 @@ const statusInfo = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
 };
 
-// Maps BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
-// Accepts both number and string since APIs sometimes serialize enums as strings.
-// Also handles 0-based variants (0=Pending … 4=PendingTransfer) just in case.
-const bookingStatusInfo = (raw: number | string) => {
-  // Normalise to number
+// BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
+const bookingStatusInfo = (raw: number | string | undefined | null) => {
+  // Guard: treat missing/null/undefined as unknown immediately
+  if (raw === undefined || raw === null) {
+    return { label: 'Unknown', color: 'bg-gray-100 text-gray-400 border-gray-200' };
+  }
   const s = typeof raw === 'string' ? parseInt(raw, 10) : raw;
+  if (isNaN(s)) return { label: 'Unknown', color: 'bg-gray-100 text-gray-400 border-gray-200' };
 
-  // 1-based (standard)
   if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
   if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
   if (s === 3) return { label: 'Completed',        color: 'bg-blue-100 text-blue-700 border-blue-200' };
   if (s === 4) return { label: 'Ended',            color: 'bg-purple-100 text-purple-700 border-purple-200' };
   if (s === 5) return { label: 'Pending Transfer', color: 'bg-orange-100 text-orange-700 border-orange-200' };
 
-  // 0-based fallback
-  if (s === 0) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
-
-  // Show the raw value so it's visible in the UI during debugging
-  return { label: `Status ${isNaN(s) ? raw : s}`, color: 'bg-gray-100 text-gray-400' };
+  return { label: `Status ${s}`, color: 'bg-gray-100 text-gray-400 border-gray-200' };
 };
 
 const formatDate = (d: string) => {
@@ -153,7 +173,8 @@ const formatDate = (d: string) => {
 
 const genderLabel = (g?: number) => (g === 1 ? 'Male' : g === 2 ? 'Female' : '—');
 
-// ─── Lookup user by accountId ─────────────────────────────────────────────────
+// ─── Lookup helpers ───────────────────────────────────────────────────────────
+
 async function lookupUserByAccountId(accountId: string): Promise<UserLookup | null> {
   try {
     const s = await api.get<any>(`/Student/Account/${accountId}`).catch(() => null);
@@ -191,7 +212,6 @@ async function lookupUserByAccountId(accountId: string): Promise<UserLookup | nu
   return null;
 }
 
-// ─── Lookup listing by id ──────────────────────────────────────────────────────
 async function lookupListingById(listingId: string | number): Promise<ListingLookup | null> {
   try {
     const data = await api.get<any>(`/Listing/${listingId}`);
@@ -211,97 +231,62 @@ async function lookupListingById(listingId: string | number): Promise<ListingLoo
   return null;
 }
 
-// ─── Unban API helper ───────────────────────────────────────────────────────────
 async function unbanUser(accountId: string): Promise<void> {
   try {
     await api.put(`/Ban/UnBanUser/${accountId}`, {});
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes('Unexpected end of JSON input')) {
-      return;
-    }
+    if (err instanceof Error && err.message.includes('Unexpected end of JSON input')) return;
     throw err;
   }
 }
 
 // ─── User Info Dialog ─────────────────────────────────────────────────────────
 
-interface UserInfoDialogProps {
-  accountId: string;
-  label: string;
-}
+interface UserInfoDialogProps { accountId: string; label: string; }
 
 const UserInfoDialog = ({ accountId, label }: UserInfoDialogProps) => {
-  const [open, setOpen]       = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult]   = useState<UserLookup | null>(null);
-  const [notFound, setNotFound] = useState(false);
-  const [fetched, setFetched]   = useState(false);
+  const [open, setOpen]           = useState(false);
+  const [loading, setLoading]     = useState(false);
+  const [result, setResult]       = useState<UserLookup | null>(null);
+  const [notFound, setNotFound]   = useState(false);
+  const [fetched, setFetched]     = useState(false);
 
   const handleOpenChange = async (next: boolean) => {
     setOpen(next);
     if (!next || fetched) return;
-    setLoading(true);
-    setNotFound(false);
+    setLoading(true); setNotFound(false);
     const found = await lookupUserByAccountId(accountId);
-    if (found) {
-      setResult(found);
-      setFetched(true);
-    } else {
-      setNotFound(true);
-    }
+    if (found) { setResult(found); setFetched(true); } else { setNotFound(true); }
     setLoading(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <button className="font-medium text-[#00A5A7] hover:underline text-xs font-mono">
-          {label}
-        </button>
+        <button className="font-medium text-[#00A5A7] hover:underline text-xs font-mono">{label}</button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[#34495E]">User Details</DialogTitle>
           <DialogDescription className="font-mono text-xs break-all">{accountId}</DialogDescription>
         </DialogHeader>
-
         {loading ? (
-          <div className="space-y-3 py-2">
-            {[1,2,3].map(i => <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />)}
-          </div>
+          <div className="space-y-3 py-2">{[1,2,3].map(i => <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />)}</div>
         ) : notFound ? (
           <p className="text-sm text-[#717182] py-2">No account found for this ID.</p>
         ) : result ? (
           <div className="space-y-3 py-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge className={`border text-xs ${
-                result.kind === 'student'
-                  ? 'bg-[#00A5A7]/10 text-[#00A5A7] border-[#00A5A7]/30'
-                  : 'bg-[#B8E986]/20 text-[#34495E] border-[#B8E986]/40'
-              }`}>
-                {result.kind === 'student' ? 'Student' : 'Landlord'}
-              </Badge>
-            </div>
+            <Badge className={`border text-xs ${result.kind === 'student' ? 'bg-[#00A5A7]/10 text-[#00A5A7] border-[#00A5A7]/30' : 'bg-[#B8E986]/20 text-[#34495E] border-[#B8E986]/40'}`}>
+              {result.kind === 'student' ? 'Student' : 'Landlord'}
+            </Badge>
             <div className="space-y-1.5 text-sm">
               <p className="text-[#34495E] font-medium">{result.name || '—'}</p>
               <p className="text-[#717182]">✉ {result.email}</p>
               {result.phoneNumber && <p className="text-[#717182]">📞 {result.phoneNumber}</p>}
-              {result.homeTown && (
-                <p className="text-[#717182] flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" />{result.homeTown}
-                </p>
-              )}
-              {result.kind === 'student' && result.facultyField && (
-                <p className="text-[#717182] flex items-center gap-1">
-                  <GraduationCap className="w-3.5 h-3.5" />{result.facultyField}
-                </p>
-              )}
-              {result.kind === 'student' && result.gender != null && (
-                <p className="text-[#717182]">Gender: {genderLabel(result.gender)}</p>
-              )}
-              {result.kind === 'landlord' && result.nationalId && (
-                <p className="text-[#717182]">National ID: {result.nationalId}</p>
-              )}
+              {result.homeTown && <p className="text-[#717182] flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{result.homeTown}</p>}
+              {result.kind === 'student' && result.facultyField && <p className="text-[#717182] flex items-center gap-1"><GraduationCap className="w-3.5 h-3.5" />{result.facultyField}</p>}
+              {result.kind === 'student' && result.gender != null && <p className="text-[#717182]">Gender: {genderLabel(result.gender)}</p>}
+              {result.kind === 'landlord' && result.nationalId && <p className="text-[#717182]">National ID: {result.nationalId}</p>}
               <p className="text-[#717182] text-xs">Numeric ID: #{result.id}</p>
             </div>
           </div>
@@ -313,51 +298,37 @@ const UserInfoDialog = ({ accountId, label }: UserInfoDialogProps) => {
 
 // ─── Listing Info Dialog ──────────────────────────────────────────────────────
 
-interface ListingInfoDialogProps {
-  listingId: string;
-  label: string;
-}
+interface ListingInfoDialogProps { listingId: string; label: string; }
 
 const ListingInfoDialog = ({ listingId, label }: ListingInfoDialogProps) => {
   const navigate = useNavigate();
-  const [open, setOpen]         = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState<ListingLookup | null>(null);
-  const [notFound, setNotFound] = useState(false);
-  const [fetched, setFetched]   = useState(false);
+  const [open, setOpen]           = useState(false);
+  const [loading, setLoading]     = useState(false);
+  const [result, setResult]       = useState<ListingLookup | null>(null);
+  const [notFound, setNotFound]   = useState(false);
+  const [fetched, setFetched]     = useState(false);
 
   const handleOpenChange = async (next: boolean) => {
     setOpen(next);
     if (!next || fetched) return;
-    setLoading(true);
-    setNotFound(false);
+    setLoading(true); setNotFound(false);
     const found = await lookupListingById(listingId);
-    if (found) {
-      setResult(found);
-      setFetched(true);
-    } else {
-      setNotFound(true);
-    }
+    if (found) { setResult(found); setFetched(true); } else { setNotFound(true); }
     setLoading(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <button className="font-medium text-[#00A5A7] hover:underline text-xs font-mono">
-          {label}
-        </button>
+        <button className="font-medium text-[#00A5A7] hover:underline text-xs font-mono">{label}</button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-[#34495E]">Listing Details</DialogTitle>
           <DialogDescription className="font-mono text-xs">Listing #{listingId}</DialogDescription>
         </DialogHeader>
-
         {loading ? (
-          <div className="space-y-3 py-2">
-            {[1,2,3].map(i => <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />)}
-          </div>
+          <div className="space-y-3 py-2">{[1,2,3].map(i => <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />)}</div>
         ) : notFound ? (
           <p className="text-sm text-[#717182] py-2">No listing found with this ID.</p>
         ) : result ? (
@@ -374,24 +345,17 @@ const ListingInfoDialog = ({ listingId, label }: ListingInfoDialogProps) => {
             <div className="space-y-1.5 text-sm">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-[#34495E] font-medium">{result.title || '—'}</p>
-                <Badge className={`text-xs border-0 ${
-                  result.status === 1 ? 'bg-[#B8E986] text-[#34495E]' : 'bg-gray-100 text-gray-500'
-                }`}>
+                <Badge className={`text-xs border-0 ${result.status === 1 ? 'bg-[#B8E986] text-[#34495E]' : 'bg-gray-100 text-gray-500'}`}>
                   {result.status === 1 ? 'Active' : 'Pending'}
                 </Badge>
               </div>
               {(result.address || result.city) && (
                 <p className="text-[#717182] flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" />
-                  {result.address ? `${result.address}, ` : ''}{result.city}
+                  <MapPin className="w-3.5 h-3.5" />{result.address ? `${result.address}, ` : ''}{result.city}
                 </p>
               )}
-              {result.pricePerMonth != null && (
-                <p className="text-[#717182]">EGP {result.pricePerMonth.toLocaleString()} / month</p>
-              )}
-              {result.landlordName && (
-                <p className="text-[#717182]">By <span className="text-[#00A5A7]">{result.landlordName}</span></p>
-              )}
+              {result.pricePerMonth != null && <p className="text-[#717182]">EGP {result.pricePerMonth.toLocaleString()} / month</p>}
+              {result.landlordName && <p className="text-[#717182]">By <span className="text-[#00A5A7]">{result.landlordName}</span></p>}
               <p className="text-[#717182] text-xs">Listing ID: #{result.id}</p>
             </div>
             <Button size="sm" onClick={() => navigate(`/house/${result.id}`)}
@@ -406,37 +370,19 @@ const ListingInfoDialog = ({ listingId, label }: ListingInfoDialogProps) => {
 };
 
 // ─── Reported Entity Dialog ───────────────────────────────────────────────────
-// Detection strategy: if reportedId is purely numeric digits → listing ID.
-// If it contains hyphens (GUID format) → user accountId.
-// This is more reliable than trusting report.type from the backend.
 
-interface ReportedEntityDialogProps {
-  report: Report;
-  compact?: boolean;
-}
+interface ReportedEntityDialogProps { report: Report; compact?: boolean; }
 
 const ReportedEntityDialog = ({ report, compact = true }: ReportedEntityDialogProps) => {
   if (isNumericId(report.reportedId)) {
-    return (
-      <ListingInfoDialog
-        listingId={report.reportedId}
-        label={compact ? `Listing #${report.reportedId}` : 'View listing details →'}
-      />
-    );
+    return <ListingInfoDialog listingId={report.reportedId} label={compact ? `Listing #${report.reportedId}` : 'View listing details →'} />;
   }
-  return (
-    <UserInfoDialog
-      accountId={report.reportedId}
-      label={compact ? report.reportedId.slice(0, 8) + '…' : 'View reported profile →'}
-    />
-  );
+  return <UserInfoDialog accountId={report.reportedId} label={compact ? report.reportedId.slice(0, 8) + '…' : 'View reported profile →'} />;
 };
 
 // ─── Report Detail Dialog ─────────────────────────────────────────────────────
 
-interface ReportDetailDialogProps {
-  report: Report;
-}
+interface ReportDetailDialogProps { report: Report; }
 
 const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
   const { label, color } = statusInfo(report.status);
@@ -452,30 +398,19 @@ const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-[#34495E]">Report Details</DialogTitle>
-          <DialogDescription>
-            {isListingReport ? '📋 Listing Report' : '👤 User Report'}
-            {report.id && ` · ID #${report.id}`}
-          </DialogDescription>
+          <DialogDescription>{isListingReport ? '📋 Listing Report' : '👤 User Report'}{report.id && ` · ID #${report.id}`}</DialogDescription>
         </DialogHeader>
-
         <div className="space-y-4 py-2">
-          {/* Status */}
           <div className="flex items-center gap-2">
             <Badge className={`${color} border text-xs`}>{label}</Badge>
             <span className="text-xs text-[#717182]">
-              {new Date(report.createdAt).toLocaleDateString('en-GB', {
-                day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-              })}
+              {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </span>
           </div>
-
-          {/* Reason */}
           <div className="space-y-1">
             <Label className="text-[#34495E] text-xs font-semibold">Reason</Label>
             <p className="text-sm text-[#34495E] p-3 bg-gray-50 rounded-lg border">{report.reason}</p>
           </div>
-
-          {/* Reporter */}
           <div className="space-y-1">
             <Label className="text-[#34495E] text-xs font-semibold">Reporter</Label>
             <div className="flex items-center gap-2 p-3 bg-[#00A5A7]/5 border border-[#00A5A7]/20 rounded-lg">
@@ -486,12 +421,8 @@ const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
               </div>
             </div>
           </div>
-
-          {/* Reported */}
           <div className="space-y-1">
-            <Label className="text-[#34495E] text-xs font-semibold">
-              {isListingReport ? 'Reported Listing' : 'Reported User'}
-            </Label>
+            <Label className="text-[#34495E] text-xs font-semibold">{isListingReport ? 'Reported Listing' : 'Reported User'}</Label>
             <div className="flex items-center gap-2 p-3 bg-[#FF6F61]/5 border border-[#FF6F61]/20 rounded-lg">
               <Flag className="w-4 h-4 text-[#FF6F61] flex-shrink-0" />
               <div className="min-w-0">
@@ -510,18 +441,14 @@ const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
 
 // ─── Ban Dialog ───────────────────────────────────────────────────────────────
 
-interface BanDialogProps {
-  userId: string;
-  userName: string;
-  onBanned: () => void;
-}
+interface BanDialogProps { userId: string; userName: string; onBanned: () => void; }
 
 const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
-  const [open, setOpen]         = useState(false);
-  const [banType, setBanType]   = useState<'1' | '2'>('1');
-  const [endDate, setEndDate]   = useState('');
-  const [reason, setReason]     = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [open, setOpen]       = useState(false);
+  const [banType, setBanType] = useState<'1' | '2'>('1');
+  const [endDate, setEndDate] = useState('');
+  const [reason, setReason]   = useState('');
+  const [loading, setLoading] = useState(false);
 
   const minDate = new Date();
   minDate.setDate(minDate.getDate() + 1);
@@ -558,19 +485,16 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
         <form onSubmit={handleBan} className="space-y-4 mt-2">
           <div className="grid grid-cols-2 gap-3">
             <button type="button" onClick={() => setBanType('1')}
-              className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                banType === '1' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:border-orange-200'}`}>
+              className={`p-3 rounded-lg border-2 text-left transition-colors ${banType === '1' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:border-orange-200'}`}>
               <p className="font-medium text-sm text-[#34495E]">⏱ Temporary</p>
               <p className="text-xs text-[#717182] mt-1">Ban until a specific date</p>
             </button>
             <button type="button" onClick={() => setBanType('2')}
-              className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                banType === '2' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-red-200'}`}>
+              className={`p-3 rounded-lg border-2 text-left transition-colors ${banType === '2' ? 'border-red-500 bg-red-50' : 'border-gray-200 hover:border-red-200'}`}>
               <p className="font-medium text-sm text-[#34495E]">🚫 Permanent</p>
               <p className="text-xs text-[#717182] mt-1">Block forever</p>
             </button>
           </div>
-
           {banType === '1' && (
             <div className="space-y-2">
               <Label>Ban Until</Label>
@@ -582,12 +506,10 @@ const BanDialog = ({ userId, userName, onBanned }: BanDialogProps) => {
               ⚠ This will permanently block this email from registering again.
             </div>
           )}
-
           <div className="space-y-2">
             <Label>Reason</Label>
             <Input placeholder="Reason for ban..." value={reason} onChange={(e) => setReason(e.target.value)} required />
           </div>
-
           <div className="flex gap-3 justify-end">
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>Cancel</Button>
             <Button type="submit" disabled={loading || !reason || (banType === '1' && !endDate)}
@@ -621,17 +543,13 @@ const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, 
       {extra}
     </div>
     <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
-      {accountId && !isBanned && (
-        <BanDialog userId={accountId} userName={name} onBanned={onBanned ?? (() => {})} />
-      )}
+      {accountId && !isBanned && <BanDialog userId={accountId} userName={name} onBanned={onBanned ?? (() => {})} />}
       {isBanned && accountId && onUnban && (
-        <Button variant="outline" size="sm" onClick={onUnban}
-          className="border-green-500 text-green-600 hover:bg-green-50">
+        <Button variant="outline" size="sm" onClick={onUnban} className="border-green-500 text-green-600 hover:bg-green-50">
           <ShieldOff className="w-4 h-4 mr-1" />Unban
         </Button>
       )}
-      <Button variant="outline" size="sm" onClick={onRemove}
-        className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
+      <Button variant="outline" size="sm" onClick={onRemove} className="border-[#FF6F61] text-[#FF6F61] hover:bg-[#FF6F61] hover:text-white">
         Remove
       </Button>
     </div>
@@ -643,8 +561,7 @@ const UserCard = ({ name, email, extra, accountId, onRemove, onUnban, isBanned, 
 const StatCard = ({ label, value, icon, onClick }: {
   label: string; value: number | string; icon: React.ReactNode; onClick?: () => void;
 }) => (
-  <Card onClick={onClick}
-    className={`transition-all ${onClick ? 'cursor-pointer hover:border-[#00A5A7] hover:shadow-md' : ''}`}>
+  <Card onClick={onClick} className={`transition-all ${onClick ? 'cursor-pointer hover:border-[#00A5A7] hover:shadow-md' : ''}`}>
     <CardHeader className="flex flex-row items-center justify-between pb-2">
       <CardTitle className="text-[#717182] text-xs">{label}</CardTitle>
       {icon}
@@ -669,7 +586,6 @@ export const Admin = () => {
   const [loading, setLoading]     = useState(true);
   const [bannedIds, setBannedIds] = useState<Set<string>>(new Set());
 
-  // Banned users dialog
   const [bansDialogOpen, setBansDialogOpen]         = useState(false);
   const [bannedUsersList, setBannedUsersList]       = useState<BannedEntry[]>([]);
   const [bannedUsersLoading, setBannedUsersLoading] = useState(false);
@@ -685,10 +601,10 @@ export const Admin = () => {
   const [studentSearching, setStudentSearching]   = useState(false);
   const [studentNotFound, setStudentNotFound]     = useState(false);
 
-  const [reports, setReports]               = useState<Report[]>([]);
-  const [reportCount, setReportCount]       = useState(0);
-  const [reportStatus, setReportStatus]     = useState<string>('all');
-  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reports, setReports]                     = useState<Report[]>([]);
+  const [reportCount, setReportCount]             = useState(0);
+  const [reportStatus, setReportStatus]           = useState<string>('all');
+  const [reportsLoading, setReportsLoading]       = useState(false);
   const [updatingReportIdx, setUpdatingReportIdx] = useState<number | null>(null);
 
   const [listingIdInput, setListingIdInput]               = useState('');
@@ -696,10 +612,10 @@ export const Admin = () => {
   const [listingReportsLoading, setListingReportsLoading] = useState(false);
   const [searchedListingId, setSearchedListingId]         = useState<string | null>(null);
 
-  const [bookings, setBookings]               = useState<BookingDto[]>([]);
-  const [bookingCount, setBookingCount]       = useState(0);
-  const [bookingStatusFilter, setBookingStatusFilter] = useState<string>('all');
-  const [bookingsLoading, setBookingsLoading] = useState(false);
+  const [bookings, setBookings]                         = useState<BookingDto[]>([]);
+  const [bookingCount, setBookingCount]                 = useState(0);
+  const [bookingStatusFilter, setBookingStatusFilter]   = useState<string>('all');
+  const [bookingsLoading, setBookingsLoading]           = useState(false);
 
   if (!user || user.type !== 'admin') {
     return (
@@ -771,38 +687,51 @@ export const Admin = () => {
     setBookingsLoading(true);
     try {
       const params = new URLSearchParams();
-      if (bookingStatusFilter !== 'all') params.append('Status', bookingStatusFilter);
+      // NOTE: GetAllBookings does NOT return status/names — we enrich via GetBooking/{id}
+      // The status filter param is still sent so the backend can pre-filter the list
+      if (bookingStatusFilter !== 'all') params.append('status', bookingStatusFilter);
       params.append('PageIndex', '1');
       params.append('PageSize', '100');
 
-      // Step 1: get the list (has id, dates, names — but no status field)
       const data = await api.get<any>(`/Booking/GetAllBookings?${params}`);
-      const rawList: any[] = Array.isArray(data) ? data : (data?.data || []);
-      const totalCount = data?.count ?? rawList.length;
+      const rawList: RawBookingListItem[] = Array.isArray(data) ? data : (data?.data || []);
+      const totalCount: number = data?.count ?? rawList.length;
 
-      // Step 2: fetch full details for each booking to get status
+      // Enrich each list item by fetching the full booking detail.
+      // GetBooking/{id} returns: id, startDate, endDate, status, studentId, bedId,
+      // listingId, landLordId (capital L!), studentName, roomId, landlordName, amount, type
       const detailed: BookingDto[] = await Promise.all(
-        rawList.map(async (b: any) => {
+        rawList.map(async (b: RawBookingListItem): Promise<BookingDto> => {
           try {
-            const full = await api.get<any>(`/Booking/GetBooking/${b.id}`);
+            const full = await api.get<RawBookingDetail>(`/Booking/GetBooking/${b.id}`);
             return {
-              id:               full.id,
-              startDate:        full.startDate,
-              endDate:          full.endDate,
-              status:           full.status,
-              studentId:        full.studentId,
-              studentName:      full.studentName  ?? b.studentName,
-              landlordId:       full.landLordId,
-              landlordName:     full.landlordName ?? b.landlordName,
-              listingId:        full.listingId,
-              listingTitle:     b.listingTitle,
-              bedId:            full.bedId,
-              amount:           full.amount,
-              durationInMonths: b.durationInMonths,
-            } as BookingDto;
+              id:           full.id,
+              startDate:    full.startDate,
+              endDate:      full.endDate,
+              // ✅ FIX: status comes from the detail endpoint — always a number 1–5
+              status:       full.status,
+              studentId:    full.studentId,
+              studentName:  full.studentName,
+              // ✅ FIX: backend spells this "landLordId" (capital L), not "landlordId"
+              landlordId:   full.landLordId,
+              landlordName: full.landlordName,
+              listingId:    full.listingId,
+              // listingTitle & durationInMonths are not in either endpoint — omit
+              bedId:        full.bedId,
+              amount:       full.amount,
+            };
           } catch {
-            // If individual fetch fails, return the list item as-is
-            return b as BookingDto;
+            // Individual fetch failed — return a minimal object with the list data.
+            // Status will be undefined here, so bookingStatusInfo will show "Unknown"
+            // instead of crashing or showing "Status NaN".
+            return {
+              id:        b.id,
+              startDate: b.startDate,
+              endDate:   b.endDate,
+              listingId: b.listingId,
+              bedId:     b.bedId,
+              status:    0, // sentinel: renders as "Unknown" via bookingStatusInfo guard
+            };
           }
         })
       );
@@ -811,10 +740,12 @@ export const Admin = () => {
       setBookingCount(totalCount);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load bookings.');
-    } finally { setBookingsLoading(false); }
+    } finally {
+      setBookingsLoading(false);
+    }
   };
 
-  // ─── Banned users dialog ────────────────────────────────────────────────────
+  // ─── Banned users dialog ──────────────────────────────────────────────────
 
   const fetchBannedUsersList = async () => {
     setBannedUsersLoading(true);
@@ -823,17 +754,13 @@ export const Admin = () => {
       const activeBans = (data?.data || []).filter(r => r.isActive);
       const entries: BannedEntry[] = await Promise.all(activeBans.map(async (b): Promise<BannedEntry> => {
         const found = await lookupUserByAccountId(b.userId);
-        if (found) {
-          return { accountId: b.userId, name: found.name || '—', email: found.email, kind: found.kind, id: found.id };
-        }
+        if (found) return { accountId: b.userId, name: found.name || '—', email: found.email, kind: found.kind, id: found.id };
         return { accountId: b.userId, name: 'Unknown account', email: b.userId };
       }));
       setBannedUsersList(entries);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load banned users.');
-    } finally {
-      setBannedUsersLoading(false);
-    }
+    } finally { setBannedUsersLoading(false); }
   };
 
   const handleBansDialogOpenChange = (next: boolean) => {
@@ -843,11 +770,8 @@ export const Admin = () => {
 
   const handleUnbanFromDialog = async (entry: BannedEntry) => {
     setUnbanningId(entry.accountId);
-    try {
-      await handleUnban(entry.accountId, entry.name, entry.kind, entry.id);
-    } finally {
-      setUnbanningId(null);
-    }
+    try { await handleUnban(entry.accountId, entry.name, entry.kind, entry.id); }
+    finally { setUnbanningId(null); }
   };
 
   const handleLandlordSearch = async () => {
@@ -892,12 +816,7 @@ export const Admin = () => {
     } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed.'); }
   };
 
-  const handleUnban = async (
-    accountId: string,
-    name: string,
-    type?: 'landlord' | 'student',
-    id?: number,
-  ) => {
+  const handleUnban = async (accountId: string, name: string, type?: 'landlord' | 'student', id?: number) => {
     try {
       await unbanUser(accountId);
       toast.success(`${name} has been unbanned.`);
@@ -955,11 +874,11 @@ export const Admin = () => {
   };
 
   const tabs = [
-    { id: 'overview',  label: 'Overview',                                                  icon: TrendingUp },
-    { id: 'landlords', label: `Landlords (${landlords.length})`,                           icon: Home },
-    { id: 'students',  label: `Students (${students.length})`,                             icon: Users },
-    { id: 'bookings',  label: `Bookings${bookingCount > 0 ? ` (${bookingCount})` : ''}`,  icon: BookOpen },
-    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`,     icon: Flag },
+    { id: 'overview',  label: 'Overview',                                                 icon: TrendingUp },
+    { id: 'landlords', label: `Landlords (${landlords.length})`,                          icon: Home },
+    { id: 'students',  label: `Students (${students.length})`,                            icon: Users },
+    { id: 'bookings',  label: `Bookings${bookingCount > 0 ? ` (${bookingCount})` : ''}`, icon: BookOpen },
+    { id: 'reports',   label: `Reports${reportCount > 0 ? ` (${reportCount})` : ''}`,    icon: Flag },
   ] as const;
 
   return (
@@ -974,9 +893,7 @@ export const Admin = () => {
             return (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-[#00A5A7] text-[#00A5A7]'
-                    : 'border-transparent text-[#717182] hover:text-[#34495E]'
+                  activeTab === tab.id ? 'border-[#00A5A7] text-[#00A5A7]' : 'border-transparent text-[#717182] hover:text-[#34495E]'
                 }`}>
                 <Icon className="w-4 h-4" />{tab.label}
               </button>
@@ -993,15 +910,15 @@ export const Admin = () => {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                <StatCard label="Total Students"   value={stats?.totalStudents   ?? students.length}  icon={<Users      className="w-5 h-5 text-[#00A5A7]" />}   onClick={() => setActiveTab('students')} />
-                <StatCard label="Total Landlords"  value={stats?.totalLandlords  ?? landlords.length} icon={<Home       className="w-5 h-5 text-[#B8E986]" />}   onClick={() => setActiveTab('landlords')} />
-                <StatCard label="Total Listings"   value={stats?.totalListings   ?? '—'}              icon={<TrendingUp className="w-5 h-5 text-[#FFC759]" />}   onClick={() => navigate('/houses')} />
-                <StatCard label="Total Bookings"   value={stats?.totalBookings   ?? '—'}              icon={<BookOpen   className="w-5 h-5 text-[#B19CD9]" />}   onClick={() => setActiveTab('bookings')} />
-                <StatCard label="Available Beds"   value={stats?.availableBeds   ?? '—'}              icon={<Bed        className="w-5 h-5 text-[#B8E986]" />} />
-                <StatCard label="Occupied Beds"    value={stats?.occupiedBeds    ?? '—'}              icon={<Bed        className="w-5 h-5 text-[#FF6F61]" />} />
-                <StatCard label="Pending Listings" value={stats?.pendingListings ?? '—'}              icon={<Flag       className="w-5 h-5 text-orange-400" />} />
-                <StatCard label="Total Reports"    value={stats?.totalReports    ?? reportCount}       icon={<Flag       className="w-5 h-5 text-[#FF6F61]" />}   onClick={() => setActiveTab('reports')} />
-                <StatCard label="Total Bans"       value={stats?.totalBans       ?? bannedIds.size}    icon={<ShieldAlert className="w-5 h-5 text-red-500" />}  onClick={() => handleBansDialogOpenChange(true)} />
+                <StatCard label="Total Students"   value={stats?.totalStudents   ?? students.length}  icon={<Users       className="w-5 h-5 text-[#00A5A7]"  />} onClick={() => setActiveTab('students')} />
+                <StatCard label="Total Landlords"  value={stats?.totalLandlords  ?? landlords.length} icon={<Home        className="w-5 h-5 text-[#B8E986]"  />} onClick={() => setActiveTab('landlords')} />
+                <StatCard label="Total Listings"   value={stats?.totalListings   ?? '—'}              icon={<TrendingUp  className="w-5 h-5 text-[#FFC759]"  />} onClick={() => navigate('/houses')} />
+                <StatCard label="Total Bookings"   value={stats?.totalBookings   ?? '—'}              icon={<BookOpen    className="w-5 h-5 text-[#B19CD9]"  />} onClick={() => setActiveTab('bookings')} />
+                <StatCard label="Available Beds"   value={stats?.availableBeds   ?? '—'}              icon={<Bed         className="w-5 h-5 text-[#B8E986]"  />} />
+                <StatCard label="Occupied Beds"    value={stats?.occupiedBeds    ?? '—'}              icon={<Bed         className="w-5 h-5 text-[#FF6F61]"  />} />
+                <StatCard label="Pending Listings" value={stats?.pendingListings ?? '—'}              icon={<Flag        className="w-5 h-5 text-orange-400" />} />
+                <StatCard label="Total Reports"    value={stats?.totalReports    ?? reportCount}       icon={<Flag        className="w-5 h-5 text-[#FF6F61]"  />} onClick={() => setActiveTab('reports')} />
+                <StatCard label="Total Bans"       value={stats?.totalBans       ?? bannedIds.size}    icon={<ShieldAlert className="w-5 h-5 text-red-500"    />} onClick={() => handleBansDialogOpenChange(true)} />
               </div>
             )}
 
@@ -1014,11 +931,8 @@ export const Admin = () => {
                   </DialogTitle>
                   <DialogDescription>All users currently banned from the platform</DialogDescription>
                 </DialogHeader>
-
                 {bannedUsersLoading ? (
-                  <div className="space-y-3 py-2">
-                    {[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />)}
-                  </div>
+                  <div className="space-y-3 py-2">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />)}</div>
                 ) : bannedUsersList.length === 0 ? (
                   <p className="text-sm text-[#717182] text-center py-6">No banned users.</p>
                 ) : (
@@ -1029,11 +943,7 @@ export const Admin = () => {
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-medium text-[#34495E] truncate">{entry.name}</p>
                             {entry.kind && (
-                              <Badge className={`border text-xs ${
-                                entry.kind === 'student'
-                                  ? 'bg-[#00A5A7]/10 text-[#00A5A7] border-[#00A5A7]/30'
-                                  : 'bg-[#B8E986]/20 text-[#34495E] border-[#B8E986]/40'
-                              }`}>
+                              <Badge className={`border text-xs ${entry.kind === 'student' ? 'bg-[#00A5A7]/10 text-[#00A5A7] border-[#00A5A7]/30' : 'bg-[#B8E986]/20 text-[#34495E] border-[#B8E986]/40'}`}>
                                 {entry.kind === 'student' ? 'Student' : 'Landlord'}
                               </Badge>
                             )}
@@ -1076,9 +986,7 @@ export const Admin = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2 mb-1 flex-wrap">
                             <p className="text-[#34495E] font-medium hover:text-[#00A5A7] line-clamp-1">{listing.title}</p>
-                            <Badge className={`text-xs flex-shrink-0 border-0 ${
-                              listing.status === 1 ? 'bg-[#B8E986] text-[#34495E]' : 'bg-gray-100 text-gray-500'
-                            }`}>
+                            <Badge className={`text-xs flex-shrink-0 border-0 ${listing.status === 1 ? 'bg-[#B8E986] text-[#34495E]' : 'bg-gray-100 text-gray-500'}`}>
                               {listing.status === 1 ? 'Active' : 'Pending'}
                             </Badge>
                           </div>
@@ -1138,8 +1046,7 @@ export const Admin = () => {
                     <Search className="w-4 h-4 mr-2" />{landlordSearching ? 'Searching...' : 'Search'}
                   </Button>
                   {foundLandlord && (
-                    <Button variant="ghost" onClick={() => { setFoundLandlord(null); setLandlordEmailInput(''); }}
-                      className="text-[#717182]">Clear</Button>
+                    <Button variant="ghost" onClick={() => { setFoundLandlord(null); setLandlordEmailInput(''); }} className="text-[#717182]">Clear</Button>
                   )}
                 </div>
                 {landlordNotFound && <p className="text-sm text-[#FF6F61]">No landlord found with that email.</p>}
@@ -1191,9 +1098,7 @@ export const Admin = () => {
                         extra={l.phoneNumber ? <p className="text-sm text-[#717182]">{l.phoneNumber}</p> : undefined}
                         onRemove={() => handleDeleteLandlord(l.id)}
                         onBanned={() => handleBanned('landlord', l.id, l.accountId)}
-                        onUnban={l.accountId
-                          ? () => handleUnban(l.accountId, `${l.firstName} ${l.lastName}`, 'landlord', l.id)
-                          : undefined}
+                        onUnban={l.accountId ? () => handleUnban(l.accountId, `${l.firstName} ${l.lastName}`, 'landlord', l.id) : undefined}
                       />
                     ))}
                   </div>
@@ -1219,8 +1124,7 @@ export const Admin = () => {
                     <Search className="w-4 h-4 mr-2" />{studentSearching ? 'Searching...' : 'Search'}
                   </Button>
                   {foundStudent && (
-                    <Button variant="ghost" onClick={() => { setFoundStudent(null); setStudentEmailInput(''); }}
-                      className="text-[#717182]">Clear</Button>
+                    <Button variant="ghost" onClick={() => { setFoundStudent(null); setStudentEmailInput(''); }} className="text-[#717182]">Clear</Button>
                   )}
                 </div>
                 {studentNotFound && <p className="text-sm text-[#FF6F61]">No student found with that email.</p>}
@@ -1272,9 +1176,7 @@ export const Admin = () => {
                         extra={s.facultyField ? <p className="text-sm text-[#717182]">{s.facultyField}</p> : undefined}
                         onRemove={() => handleDeleteStudent(s.id)}
                         onBanned={() => handleBanned('student', s.id, s.accountId)}
-                        onUnban={s.accountId
-                          ? () => handleUnban(s.accountId, `${s.firstName} ${s.lastName}`, 'student', s.id)
-                          : undefined}
+                        onUnban={s.accountId ? () => handleUnban(s.accountId, `${s.firstName} ${s.lastName}`, 'student', s.id) : undefined}
                       />
                     ))}
                   </div>
@@ -1335,9 +1237,9 @@ export const Admin = () => {
                           )}
                         </div>
                         <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
-                          {booking.studentName && <span className="flex items-center gap-1"><User className="w-3.5 h-3.5" />{booking.studentName}</span>}
-                          {booking.landlordName && <span className="flex items-center gap-1"><Home className="w-3.5 h-3.5" />{booking.landlordName}</span>}
-                          <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5" />Bed #{booking.bedId}</span>
+                          {booking.studentName  && <span className="flex items-center gap-1"><User     className="w-3.5 h-3.5" />{booking.studentName}</span>}
+                          {booking.landlordName && <span className="flex items-center gap-1"><Home     className="w-3.5 h-3.5" />{booking.landlordName}</span>}
+                          <span className="flex items-center gap-1"><Bed      className="w-3.5 h-3.5" />Bed #{booking.bedId}</span>
                           <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{formatDate(booking.startDate)} → {formatDate(booking.endDate)}</span>
                           {booking.durationInMonths != null && <span>{booking.durationInMonths}mo</span>}
                         </div>
@@ -1358,8 +1260,6 @@ export const Admin = () => {
         {/* ════════ REPORTS ════════ */}
         {activeTab === 'reports' && (
           <div className="space-y-6">
-
-            {/* Search by listing */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-[#34495E]">Search Reports by Listing</CardTitle>
@@ -1376,8 +1276,7 @@ export const Admin = () => {
                     <Search className="w-4 h-4 mr-2" />{listingReportsLoading ? 'Searching...' : 'Search'}
                   </Button>
                   {searchedListingId && (
-                    <Button variant="ghost" onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }}
-                      className="text-[#717182]">Clear</Button>
+                    <Button variant="ghost" onClick={() => { setSearchedListingId(null); setListingReports([]); setListingIdInput(''); }} className="text-[#717182]">Clear</Button>
                   )}
                 </div>
                 {listingReportsLoading ? (
@@ -1413,7 +1312,6 @@ export const Admin = () => {
               </CardContent>
             </Card>
 
-            {/* All reports */}
             <Card>
               <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
@@ -1458,29 +1356,21 @@ export const Admin = () => {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Badge className={`${color} border text-xs`}>{label}</Badge>
                                 <span className="text-xs text-[#717182]">{formatDate(report.createdAt)}</span>
-                                <span className="text-xs text-[#717182]">
-                                  {isListingReport ? '📋 Listing' : '👤 User'}
-                                </span>
+                                <span className="text-xs text-[#717182]">{isListingReport ? '📋 Listing' : '👤 User'}</span>
                                 {report.id && <span className="text-xs text-[#717182]">ID: #{report.id}</span>}
                               </div>
-
                               <p className="text-sm text-[#34495E] line-clamp-2">{report.reason}</p>
-
                               <div className="flex flex-wrap gap-3 text-xs text-[#717182]">
                                 <span className="flex items-center gap-1">
-                                  Reporter:
-                                  <UserInfoDialog accountId={report.reporterId} label={report.reporterId.slice(0,8) + '…'} />
+                                  Reporter: <UserInfoDialog accountId={report.reporterId} label={report.reporterId.slice(0,8) + '…'} />
                                 </span>
                                 <span className="flex items-center gap-1">
-                                  Reported:
-                                  <ReportedEntityDialog report={report} />
+                                  Reported: <ReportedEntityDialog report={report} />
                                 </span>
                               </div>
                             </div>
-
                             <div className="flex flex-col gap-2 flex-shrink-0">
                               <ReportDetailDialog report={report} />
-
                               {report.status === 1 && (
                                 <div className="flex gap-2">
                                   <Button size="sm" disabled={isUpdating}
@@ -1495,16 +1385,8 @@ export const Admin = () => {
                                   </Button>
                                 </div>
                               )}
-                              {report.status === 2 && (
-                                <span className="flex items-center gap-1 text-green-600 text-sm">
-                                  <CheckCircle className="w-4 h-4" />Resolved
-                                </span>
-                              )}
-                              {report.status === 3 && (
-                                <span className="flex items-center gap-1 text-gray-400 text-sm">
-                                  <XCircle className="w-4 h-4" />Rejected
-                                </span>
-                              )}
+                              {report.status === 2 && <span className="flex items-center gap-1 text-green-600 text-sm"><CheckCircle className="w-4 h-4" />Resolved</span>}
+                              {report.status === 3 && <span className="flex items-center gap-1 text-gray-400 text-sm"><XCircle className="w-4 h-4" />Rejected</span>}
                             </div>
                           </div>
                         </div>
