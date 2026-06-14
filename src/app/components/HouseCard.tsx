@@ -19,7 +19,6 @@ interface ListingCard {
     beds: { isBooked: boolean }[];
   }[];
   landlordPhoneNumber: string | null;
-  pricePerMonth?: number;
 }
 
 type PriceMode = 'min' | 'max';
@@ -47,7 +46,7 @@ export const HouseCard = ({ house, listing, priceMode = 'min' }: HouseCardProps)
 
   const computedPrice = roomPrices.length > 0
     ? (priceMode === 'max' ? Math.max(...roomPrices) : Math.min(...roomPrices))
-    : (listing?.pricePerMonth ?? 0);
+    : 0;
 
   const priceLabel = roomPrices.length > 0
     ? (priceMode === 'max' ? 'Up to' : 'From')
