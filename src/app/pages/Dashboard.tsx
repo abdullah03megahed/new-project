@@ -24,6 +24,8 @@ interface Room {
   id: number; name: string; bedCount: number; pricePerBed: number;
   beds: BedDto[]; roomImages: string[];
   isFullyRented?: boolean;
+  canBookEntireRoom?: boolean;
+  canBookSingleBed?: boolean;
 }
 interface Listing {
   id: number; title: string; address: string; street: string; city: string;
@@ -32,6 +34,15 @@ interface Listing {
   landlordId: number; landlordName: string;
   listingImages: string[]; rooms: Room[];
   canViewContact: boolean; landlordPhoneNumber: string | null; exactAddress: string | null;
+  isFullyRented?: boolean;
+}
+
+// FIX 1: New type for the dashboard stats API response
+interface DashboardStats {
+  totalListings: number;
+  availableBeds: number;
+  bookedBeds: number;
+  startingFrom: number;
 }
 
 interface LandlordProfile {
@@ -45,8 +56,6 @@ interface SubscriptionDto {
   landlordId: number; landlordName: string;
 }
 
-// Minimal summary returned by GetLandLordBookings list endpoint
-// NOTE: no landlordId path param — the API infers it from the auth token
 interface BookingSummary {
   id: number;
   startDate: string;
@@ -60,21 +69,20 @@ interface PaginatedBookings {
   pageIndex: number; pageSize: number; count: number; data: BookingSummary[];
 }
 
-// Full booking detail from GetBooking/{id}
 interface BookingDetail {
   id: number;
   startDate: string;
   endDate: string;
-  status: number;      // 1=Pending, 2=Cancelled, 3=Completed, 4=Ended, 5=PendingTransfer
+  status: number;
   studentId: number;
   bedId: number;
   listingId: number;
-  landLordId: number;  // ← capital L (backend spelling)
+  landLordId: number;
   studentName: string;
   roomId: number;
   landlordName: string;
   amount: number;
-  type: number;        // 1=Single Bed, 2=Entire Room
+  type: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,7 +101,6 @@ const PLAN_STYLES: Record<string, { color: string; bg: string; label: string }> 
   professional: { color: '#FFC759', bg: 'rgba(255,199,89,0.12)',  label: 'Professional' },
 };
 
-// BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
 const bookingStatusInfo = (s: number) => {
   if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
   if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
@@ -111,14 +118,6 @@ const formatDate = (d: string) => {
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-// A bed is "occupied" (counts against availability) when its booking status is
-// Pending(1), Completed(3), or PendingTransfer(5).
-// Cancelled(2) and Ended(4) free the bed up again.
-const isBedOccupiedStatus = (s: number) => s === 1 || s === 3 || s === 5;
-
-// A booking is "active" for display purposes (Bookings tab badge/count) when
-// it's Pending(1) or PendingTransfer(5). Completed bookings still occupy a bed
-// (see isBedOccupiedStatus above) but aren't counted as "active" here.
 const isActiveBookingStatus = (s: number) => s === 1 || s === 5;
 
 // ─── Booking Detail Dialog ────────────────────────────────────────────────────
@@ -169,7 +168,6 @@ const BookingDetailDialog = ({ booking, open, onClose, listingTitle }: BookingDe
               </div>
             )}
 
-            {/* Room + Type — always shown */}
             <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
               <Home className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
               <div>
@@ -180,7 +178,6 @@ const BookingDetailDialog = ({ booking, open, onClose, listingTitle }: BookingDe
               </div>
             </div>
 
-            {/* Bed — only shown for single-bed bookings */}
             {isSingleBed && (
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 <Bed className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
@@ -234,20 +231,19 @@ export const Dashboard = () => {
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab]       = useState<'properties' | 'bookings'>('properties');
+  // FIX 2: listings now stores the detailed version fetched per-listing via GET /api/Listing/{id}
   const [listings, setListings]         = useState<Listing[]>([]);
   const [loading, setLoading]           = useState(true);
   const [subscription, setSubscription] = useState<SubscriptionDto | null>(null);
 
-  // Full booking details (fetched once when bookings tab is first opened)
+  // FIX 1: Dashboard stats from dedicated endpoint
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [statsLoading, setStatsLoading]     = useState(true);
+
   const [bookings, setBookings]               = useState<BookingDetail[]>([]);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [bookingsFetched, setBookingsFetched] = useState(false);
 
-  // Set of bedIds that are occupied (Pending/Completed/PendingTransfer) — used
-  // to correct listing bed counts
-  const [bookedBedIds, setBookedBedIds] = useState<Set<number>>(new Set());
-
-  // Detail dialog
   const [selectedBooking, setSelectedBooking] = useState<BookingDetail | null>(null);
   const [detailOpen, setDetailOpen]           = useState(false);
 
@@ -269,7 +265,28 @@ export const Dashboard = () => {
 
   const profileIncomplete = !user.nationalId;
 
-  // ─── Fetch listings & subscription ─────────────────────────────────────────
+  // ─── FIX 1: Fetch dashboard stats from the dedicated endpoint ──────────────
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setStatsLoading(true);
+        const stats = await api.get<{ success: boolean; data: DashboardStats }>('/landlord/dashboard-stats');
+        if (stats?.data) {
+          setDashboardStats(stats.data);
+        }
+      } catch (err) {
+        console.error('[Dashboard] Stats fetch error:', err);
+        // Non-fatal: stats will just show "—"
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+    fetchStats();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── FIX 2: Fetch listings list, then re-fetch each by ID for accurate bed data ──
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     const fetchAll = async () => {
@@ -279,10 +296,28 @@ export const Dashboard = () => {
           api.get<SubscriptionDto>('/Subscription'),
         ]);
 
-        if (listingsData.status === 'fulfilled') setListings(listingsData.value || []);
-        else toast.error('Failed to load your listings.');
-
         if (subData.status === 'fulfilled') setSubscription(subData.value);
+
+        if (listingsData.status === 'fulfilled' && listingsData.value?.length) {
+          const summaries = listingsData.value;
+
+          // Re-fetch every listing individually to get accurate per-bed isBooked state
+          const detailResults = await Promise.allSettled(
+            summaries.map(l => api.get<Listing>(`/Listing/${l.id}`))
+          );
+
+          const detailedListings: Listing[] = summaries.map((summary, i) => {
+            const result = detailResults[i];
+            // If detailed fetch succeeded, use it; otherwise fall back to summary
+            return result.status === 'fulfilled' && result.value
+              ? result.value
+              : summary;
+          });
+
+          setListings(detailedListings);
+        } else if (listingsData.status === 'rejected') {
+          toast.error('Failed to load your listings.');
+        }
       } finally {
         setLoading(false);
       }
@@ -291,11 +326,7 @@ export const Dashboard = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Fetch bookings (on mount, once) ────────────────────────────────────────
-  // FIX: /Booking/GetLandLordBookings takes NO path parameter — the server
-  // infers the landlord from the auth token. Only PageIndex/PageSize are accepted.
-  // NOTE: This now runs on initial mount (not lazily on tab switch) so that
-  // bookedBedIds is populated before the Properties tab renders bed counts.
+  // ─── Fetch bookings ─────────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (bookingsFetched) return;
@@ -303,7 +334,6 @@ export const Dashboard = () => {
 
     const loadBookings = async () => {
       try {
-        // Step 1: get the paginated summary list (no path param!)
         const paged = await api.get<PaginatedBookings>(
           '/Booking/GetLandLordBookings?PageIndex=1&PageSize=100'
         );
@@ -316,7 +346,6 @@ export const Dashboard = () => {
           return;
         }
 
-        // Step 2: fetch full detail for every booking in parallel to get status/amount/names
         const settled = await Promise.allSettled(
           summaries.map(s => api.get<BookingDetail>(`/Booking/GetBooking/${s.id}`))
         );
@@ -326,7 +355,6 @@ export const Dashboard = () => {
           if (result.status === 'fulfilled' && result.value) {
             return result.value;
           }
-          // Fallback: build a minimal record from the summary so it still renders
           return {
             id:           summary.id,
             startDate:    summary.startDate,
@@ -346,16 +374,6 @@ export const Dashboard = () => {
 
         setBookings(details);
         setBookingsFetched(true);
-
-        // Build the set of occupied bed IDs (Pending/Completed/PendingTransfer)
-        // so the properties tab can show accurate availability even before the
-        // user opens the bookings tab.
-        const occupiedIds = new Set(
-          details
-            .filter(b => isBedOccupiedStatus(b.status))
-            .map(b => b.bedId)
-        );
-        setBookedBedIds(occupiedIds);
       } catch (err) {
         console.error('[Dashboard] Booking fetch error:', err);
         toast.error('Failed to load bookings.');
@@ -373,6 +391,11 @@ export const Dashboard = () => {
       await api.delete(`/Listing/${listingId}`);
       setListings(prev => prev.filter(l => l.id !== listingId));
       toast.success('Property deleted successfully');
+      // Refresh stats after deletion
+      try {
+        const stats = await api.get<{ success: boolean; data: DashboardStats }>('/landlord/dashboard-stats');
+        if (stats?.data) setDashboardStats(stats.data);
+      } catch { /* non-fatal */ }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete listing.');
     }
@@ -387,65 +410,58 @@ export const Dashboard = () => {
     navigate('/add-house');
   };
 
-  // ─── Bed count helper ───────────────────────────────────────────────────────
-  // A bed is occupied if EITHER:
-  //   - bed.isBooked from the listing/room API is true, OR
-  //   - the bed's id is in bookedBedIds (derived from live bookings with
-  //     status Pending(1), Completed(3), or PendingTransfer(5)).
-  // room.isFullyRented is NOT used here — it has been observed to be true
-  // even when some beds in the room are still free (e.g. it may reflect any
-  // booking ever made on the room, not strictly "all beds currently full").
+  // ─── FIX 2: Bed counts derived purely from the detailed listing's beds[].isBooked ──
+  // Since we now fetch each listing via GET /Listing/{id}, the beds array has
+  // accurate real-time isBooked flags — no need for booking-state cross-referencing.
+  const getRoomBedCounts = (room: Room) => {
+    const beds = room.beds || [];
+
+    if (beds.length > 0) {
+      const bookedCount = beds.filter(b => b.isBooked).length;
+      return {
+        available: Math.max(0, beds.length - bookedCount),
+        total: beds.length,
+      };
+    }
+
+    // Fallback when the beds array is empty: use bedCount + isFullyRented
+    const total = room.bedCount || 0;
+    if (room.isFullyRented) return { available: 0, total };
+    return { available: total, total };
+  };
+
   const getBedCounts = (listing: Listing) => {
     let total = 0;
     let available = 0;
-
     listing.rooms.forEach(room => {
       const { available: rAvail, total: rTotal } = getRoomBedCounts(room);
       total += rTotal;
       available += rAvail;
     });
-
     return { available, total };
   };
 
-  // Per-room bed count
-  const getRoomBedCounts = (room: Room) => {
-    const beds = room.beds || [];
+  // ─── Stats: prefer the dedicated endpoint; fall back to local calculation ───
+  const totalListings      = dashboardStats?.totalListings ?? listings.length;
+  const totalAvailableBeds = statsLoading
+    ? null
+    : (dashboardStats?.availableBeds ?? listings.reduce((s, l) => s + getBedCounts(l).available, 0));
+  const totalBookedBeds    = statsLoading
+    ? null
+    : (dashboardStats?.bookedBeds ?? listings.reduce((s, l) => {
+        const { available, total } = getBedCounts(l);
+        return s + (total - available);
+      }, 0));
+  const lowestPrice        = dashboardStats?.startingFrom
+    ?? (() => {
+        const prices = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
+        return prices.length > 0 ? Math.min(...prices) : 0;
+      })();
 
-    if (beds.length > 0) {
-      const bookedCount = beds.filter(b => {
-        // A bed is occupied if the room already flags it OR our live
-        // booking data flags it. Either source can catch cases the other misses.
-        return b.isBooked || bookedBedIds.has(b.id);
-      }).length;
-      return { available: Math.max(0, beds.length - bookedCount), total: beds.length };
-    }
-
-    // Fallback when no beds array: use bedCount field and booking data
-    const total = room.bedCount || 0;
-    if (bookedBedIds.size > 0) {
-      const bookedInRoom = bookings.filter(
-        b => isBedOccupiedStatus(b.status) && b.roomId === room.id
-      ).length;
-      return { available: Math.max(0, total - bookedInRoom), total };
-    }
-    return { available: total, total };
-  };
-
-  const totalAvailableBeds = listings.reduce((sum, l) => sum + getBedCounts(l).available, 0);
-  const totalBookedBeds    = listings.reduce((sum, l) => {
-    const { available, total } = getBedCounts(l);
-    return sum + (total - available);
-  }, 0);
-
-  const allPrices   = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
-  const lowestPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
-
-  // "Active" bookings shown on the Bookings tab badge/header (Pending + PendingTransfer)
   const activeBookingsCount = bookings.filter(b => isActiveBookingStatus(b.status)).length;
 
-  const planKey   = subscription?.planName?.toLowerCase() ?? 'freemium';
-  const planStyle = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
+  const planKey    = subscription?.planName?.toLowerCase() ?? 'freemium';
+  const planStyle  = PLAN_STYLES[planKey] ?? PLAN_STYLES.freemium;
   const isPaidPlan = planKey !== 'freemium';
 
   return (
@@ -529,7 +545,11 @@ export const Dashboard = () => {
               <Home className="w-5 h-5 text-[#00A5A7]" />
             </CardHeader>
             <CardContent>
-              <div className="text-[#34495E] text-3xl font-bold">{listings.length}</div>
+              <div className="text-[#34495E] text-3xl font-bold">
+                {statsLoading && !dashboardStats
+                  ? <span className="text-gray-300">—</span>
+                  : totalListings}
+              </div>
               {subscription && (
                 <p className="text-[#717182] text-xs mt-1">of {subscription.maxListings.toLocaleString()} allowed</p>
               )}
@@ -543,7 +563,9 @@ export const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-[#34495E] text-3xl font-bold">
-                {loading ? <span className="text-gray-300">—</span> : totalAvailableBeds}
+                {totalAvailableBeds === null
+                  ? <span className="text-gray-300">—</span>
+                  : totalAvailableBeds}
               </div>
             </CardContent>
           </Card>
@@ -556,7 +578,9 @@ export const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-[#34495E] text-3xl font-bold">
-                {loading ? <span className="text-gray-300">—</span> : totalBookedBeds}
+                {totalBookedBeds === null
+                  ? <span className="text-gray-300">—</span>
+                  : totalBookedBeds}
               </div>
               <p className="text-[#00A5A7] text-xs mt-1">Click to view bookings →</p>
             </CardContent>
@@ -569,7 +593,8 @@ export const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-[#34495E] text-2xl font-bold">
-                {loading ? <span className="text-gray-300">—</span>
+                {statsLoading && !dashboardStats
+                  ? <span className="text-gray-300">—</span>
                   : lowestPrice > 0 ? `EGP ${lowestPrice.toLocaleString()}` : '—'}
               </div>
             </CardContent>
@@ -663,7 +688,6 @@ export const Dashboard = () => {
                           </div>
 
                           <div className="flex items-center gap-4 mb-3 flex-wrap text-sm">
-                            {/* FIX: use the corrected available/total from getBedCounts */}
                             <span className={`font-medium ${available === 0 ? 'text-[#FF6F61]' : 'text-[#00A5A7]'}`}>
                               {available}/{total} beds available
                             </span>
@@ -676,7 +700,7 @@ export const Dashboard = () => {
                             {listing.wifiAvailable && <Badge variant="outline" className="text-xs">WiFi</Badge>}
                           </div>
 
-                          {/* Per-room breakdown using corrected getRoomBedCounts */}
+                          {/* Per-room breakdown — accurate because listing is from GET /Listing/{id} */}
                           {listing.rooms.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-3">
                               {listing.rooms.map((room, idx) => {
