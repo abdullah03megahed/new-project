@@ -38,10 +38,23 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
     ? listing.rooms.flatMap((room) => room.beds).filter((bed) => !bed.isBooked).length
     : 0;
 
-  const lowestPrice = listing
-    ? listing.pricePerMonth ??
-      (listing.rooms.length > 0 ? listing.rooms[0].pricePerBed : 0)
+  
+  const prices = listing
+    ? listing.rooms.map((room) => room.pricePerBed)
+   : [];
+
+  const minPrice = listing
+    ? listing.pricePerMonth ?? (prices.length ? Math.min(...prices) : 0)
     : 0;
+
+  const maxPrice = listing
+    ? listing.pricePerMonth ?? (prices.length ? Math.max(...prices) : 0)
+    : 0;
+
+  const hasPriceRange = minPrice !== maxPrice;const lowestPrice = listing
+      ? listing.pricePerMonth ??
+        (listing.rooms.length > 0 ? listing.rooms[0].pricePerBed : 0)
+      : 0;
 
   const card = house
     ? {
@@ -60,7 +73,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
     : {
         id: listing.id,
         title: listing.title,
-        price: Number.isFinite(lowestPrice) ? lowestPrice : 0,
+        price: Number.isFinite(minPrice) ? minPrice : 0,
         location: `${listing.address}, ${listing.city}`,
         coverImage: listingImageUrl(listing.listingImages[0]),
         badge: listing.furnished ? 'Furnished' : null,
@@ -133,7 +146,9 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
           <div className="flex items-center justify-between mb-3">
             <div>
               <span className="text-[#FF6F61]" style={{ fontSize: '18px', fontWeight: '600' }}>
-                EGP {card.price.toLocaleString()}
+                {listing && hasPriceRange
+                  ? `EGP ${minPrice.toLocaleString()} – ${maxPrice.toLocaleString()}`
+                  : `EGP ${card.price.toLocaleString()}`}
               </span>
               <span className="text-[#717182] text-sm">/month</span>
             </div>
