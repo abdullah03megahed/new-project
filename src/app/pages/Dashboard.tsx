@@ -23,6 +23,7 @@ interface BedDto { id: number; isBooked: boolean; bedNumber?: number; }
 interface Room {
   id: number; name: string; bedCount: number; pricePerBed: number;
   beds: BedDto[]; roomImages: string[];
+  isFullyRented?: boolean;
 }
 interface Listing {
   id: number; title: string; address: string; street: string; city: string;
@@ -374,49 +375,44 @@ export const Dashboard = () => {
   };
 
   // ─── Bed count helper ───────────────────────────────────────────────────────
-  // The listing endpoint's beds[].isBooked field can be stale. We cross-reference
-  // with the live booking data (bookedBedIds) when available for accuracy.
-  // A bed is unavailable if it has a Pending, Completed, or PendingTransfer booking.
+  // Priority order for determining occupancy:
+  //   1. room.isFullyRented (backend-computed, authoritative) — if true, the
+  //      whole room counts as 0 available, regardless of per-bed flags.
+  //   2. bed.isBooked OR bookedBedIds (live booking data, covers
+  //      Pending/Completed/PendingTransfer) — per-bed fallback.
   const getBedCounts = (listing: Listing) => {
-    const allBeds = listing.rooms.flatMap(r => r.beds || []);
+    let total = 0;
+    let available = 0;
 
-    if (allBeds.length > 0) {
-      const bookedCount = allBeds.filter(b => {
-        // A bed is occupied if the listing already flags it OR our live
-        // booking data flags it. Either source can catch cases the other misses.
-        return b.isBooked || bookedBedIds.has(b.id);
-      }).length;
-      return { available: allBeds.length - bookedCount, total: allBeds.length };
-    }
+    listing.rooms.forEach(room => {
+      const { available: rAvail, total: rTotal } = getRoomBedCounts(room);
+      total += rTotal;
+      available += rAvail;
+    });
 
-    // Fallback when beds array is empty: use bedCount field and booking data
-    const total = listing.rooms.reduce((sum, r) => sum + (r.bedCount || 0), 0);
-
-    if (bookedBedIds.size > 0) {
-      // Count how many occupied beds belong to this listing's rooms
-      const listingRoomIds = new Set(listing.rooms.map(r => r.id));
-      const bookedInListing = bookings.filter(
-        b => isBedOccupiedStatus(b.status) && listingRoomIds.has(b.roomId)
-      ).length;
-      return { available: Math.max(0, total - bookedInListing), total };
-    }
-
-    return { available: total, total };
+    return { available, total };
   };
 
-  // Per-room bed count — same cross-reference logic
+  // Per-room bed count
   const getRoomBedCounts = (room: Room) => {
     const beds = room.beds || [];
+    const total = beds.length > 0 ? beds.length : (room.bedCount || 0);
+
+    // 1. Authoritative backend flag: if the room is fully rented, 0 are available.
+    if (room.isFullyRented) {
+      return { available: 0, total };
+    }
+
     if (beds.length > 0) {
       const bookedCount = beds.filter(b => {
         // A bed is occupied if the room already flags it OR our live
         // booking data flags it. Either source can catch cases the other misses.
         return b.isBooked || bookedBedIds.has(b.id);
       }).length;
-      return { available: beds.length - bookedCount, total: beds.length };
+      return { available: Math.max(0, beds.length - bookedCount), total };
     }
-    // Fallback when no beds array
-    const total = room.bedCount || 0;
+
+    // Fallback when no beds array: use bedCount field and booking data
     if (bookedBedIds.size > 0) {
       const bookedInRoom = bookings.filter(
         b => isBedOccupiedStatus(b.status) && b.roomId === room.id
