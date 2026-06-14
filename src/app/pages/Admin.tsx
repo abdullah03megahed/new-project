@@ -61,7 +61,8 @@ interface BookingDto {
   landlordId?: number; landlordName?: string;
   listingId: number; listingTitle?: string;
   bedId: number; startDate: string; endDate: string;
-  // status is always a number (1–5) matching BookingStatusDto enum
+  // status is always a number (1–5) matching BookingStatusDto enum,
+  // or -1 if the detail fetch failed (shown as "Details unavailable")
   status: number;
   amount?: number; durationInMonths?: number;
 }
@@ -149,6 +150,8 @@ const statusInfo = (s: number) => {
 };
 
 // BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
+// status === -1 is a frontend sentinel meaning "detail fetch failed" (e.g. 401/403/404
+// from GetBooking/{id}), NOT a real backend value — shown distinctly from "Unknown".
 const bookingStatusInfo = (raw: number | string | undefined | null) => {
   // Guard: treat missing/null/undefined as unknown immediately
   if (raw === undefined || raw === null) {
@@ -157,6 +160,7 @@ const bookingStatusInfo = (raw: number | string | undefined | null) => {
   const s = typeof raw === 'string' ? parseInt(raw, 10) : raw;
   if (isNaN(s)) return { label: 'Unknown', color: 'bg-gray-100 text-gray-400 border-gray-200' };
 
+  if (s === -1) return { label: 'Details unavailable', color: 'bg-red-50 text-red-500 border-red-200' };
   if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
   if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
   if (s === 3) return { label: 'Completed',        color: 'bg-blue-100 text-blue-700 border-blue-200' };
@@ -700,6 +704,13 @@ export const Admin = () => {
       // Enrich each list item by fetching the full booking detail.
       // GetBooking/{id} returns: id, startDate, endDate, status, studentId, bedId,
       // listingId, landLordId (capital L!), studentName, roomId, landlordName, amount, type
+      //
+      // DEBUG: previously, any failure here (401/403/404/network) was silently
+      // swallowed and the booking was shown with status: 0 ("Status 0" badge,
+      // as seen in the UI). We now log the real error so the cause (auth vs.
+      // not-found vs. something else) is visible in the console, and use a
+      // distinct sentinel (-1) so these rows are visually distinguishable from
+      // a genuine unrecognized status code.
       const detailed: BookingDto[] = await Promise.all(
         rawList.map(async (b: RawBookingListItem): Promise<BookingDto> => {
           try {
@@ -720,17 +731,17 @@ export const Admin = () => {
               bedId:        full.bedId,
               amount:       full.amount,
             };
-          } catch {
-            // Individual fetch failed — return a minimal object with the list data.
-            // Status will be undefined here, so bookingStatusInfo will show "Unknown"
-            // instead of crashing or showing "Status NaN".
+          } catch (err) {
+            // Individual fetch failed — log the real reason for debugging.
+            // eslint-disable-next-line no-console
+            console.error(`[Admin] GetBooking/${b.id} failed:`, err);
             return {
               id:        b.id,
               startDate: b.startDate,
               endDate:   b.endDate,
               listingId: b.listingId,
               bedId:     b.bedId,
-              status:    0, // sentinel: renders as "Unknown" via bookingStatusInfo guard
+              status:    -1, // sentinel: renders as "Details unavailable"
             };
           }
         })
