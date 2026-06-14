@@ -375,11 +375,13 @@ export const Dashboard = () => {
   };
 
   // ─── Bed count helper ───────────────────────────────────────────────────────
-  // Priority order for determining occupancy:
-  //   1. room.isFullyRented (backend-computed, authoritative) — if true, the
-  //      whole room counts as 0 available, regardless of per-bed flags.
-  //   2. bed.isBooked OR bookedBedIds (live booking data, covers
-  //      Pending/Completed/PendingTransfer) — per-bed fallback.
+  // A bed is occupied if EITHER:
+  //   - bed.isBooked from the listing/room API is true, OR
+  //   - the bed's id is in bookedBedIds (derived from live bookings with
+  //     status Pending(1), Completed(3), or PendingTransfer(5)).
+  // room.isFullyRented is NOT used here — it has been observed to be true
+  // even when some beds in the room are still free (e.g. it may reflect any
+  // booking ever made on the room, not strictly "all beds currently full").
   const getBedCounts = (listing: Listing) => {
     let total = 0;
     let available = 0;
@@ -396,12 +398,6 @@ export const Dashboard = () => {
   // Per-room bed count
   const getRoomBedCounts = (room: Room) => {
     const beds = room.beds || [];
-    const total = beds.length > 0 ? beds.length : (room.bedCount || 0);
-
-    // 1. Authoritative backend flag: if the room is fully rented, 0 are available.
-    if (room.isFullyRented) {
-      return { available: 0, total };
-    }
 
     if (beds.length > 0) {
       const bookedCount = beds.filter(b => {
@@ -409,10 +405,11 @@ export const Dashboard = () => {
         // booking data flags it. Either source can catch cases the other misses.
         return b.isBooked || bookedBedIds.has(b.id);
       }).length;
-      return { available: Math.max(0, beds.length - bookedCount), total };
+      return { available: Math.max(0, beds.length - bookedCount), total: beds.length };
     }
 
     // Fallback when no beds array: use bedCount field and booking data
+    const total = room.bedCount || 0;
     if (bookedBedIds.size > 0) {
       const bookedInRoom = bookings.filter(
         b => isBedOccupiedStatus(b.status) && b.roomId === room.id
