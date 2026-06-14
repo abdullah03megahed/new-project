@@ -380,9 +380,9 @@ export const Dashboard = () => {
 
     if (allBeds.length > 0) {
       const bookedCount = allBeds.filter(b => {
-        // If we have live booking data, use that; otherwise fall back to isBooked field
-        if (bookedBedIds.size > 0) return bookedBedIds.has(b.id);
-        return b.isBooked;
+        // A bed is occupied if the listing already flags it OR our live
+        // booking data flags it. Either source can catch cases the other misses.
+        return b.isBooked || bookedBedIds.has(b.id);
       }).length;
       return { available: allBeds.length - bookedCount, total: allBeds.length };
     }
@@ -407,8 +407,9 @@ export const Dashboard = () => {
     const beds = room.beds || [];
     if (beds.length > 0) {
       const bookedCount = beds.filter(b => {
-        if (bookedBedIds.size > 0) return bookedBedIds.has(b.id);
-        return b.isBooked;
+        // A bed is occupied if the room already flags it OR our live
+        // booking data flags it. Either source can catch cases the other misses.
+        return b.isBooked || bookedBedIds.has(b.id);
       }).length;
       return { available: beds.length - bookedCount, total: beds.length };
     }
