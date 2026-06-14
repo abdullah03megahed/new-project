@@ -96,7 +96,7 @@ const bookingStatusLabel = (s: number) => {
 };
 
 // Cancel is only allowed while the booking is Pending (status=1)
-const canCancelBooking = (status: number): boolean => status === 1;
+const canCancelBooking = (status: number): boolean => status === 3 || status === 5;
 
 const bookingTypeLabel = (t: number) => {
   if (t === 1) return 'Single Bed';
@@ -172,7 +172,8 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
                 <div>
                   <p className="text-xs text-[#717182]">Bed / Room</p>
                   <p className="text-[#34495E] font-medium">
-                    Bed #{detail.bedId} · {bookingTypeLabel(detail.type)}
+                    Room #{detail.roomId}
+                    {detail.type === 1 && ` · Bed #${detail.bedId}`}
                   </p>
                 </div>
               </div>
