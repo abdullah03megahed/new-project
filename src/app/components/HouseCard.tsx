@@ -14,7 +14,7 @@ interface ListingCard {
   furnished: boolean;
   listingImages: string[];
   numberOfRooms: number;
-  pricePerBed?: number;
+  pricePerMonth: number;
   rooms: {
     pricePerBed: number;
     beds: { isBooked: boolean }[];
@@ -56,8 +56,8 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
     : {
         id: listing.id,
         title: listing.title,
-        price: listing.pricePerBed ?? 0,
-        priceLabel: 'From' as string | null,
+        price: listing.pricePerMonth ?? 0,
+        priceLabel: null as string | null,
         location: `${listing.address}, ${listing.city}`,
         coverImage: listingImageUrl(listing.listingImages[0]),
         badge: listing.furnished ? 'Furnished' : null,
