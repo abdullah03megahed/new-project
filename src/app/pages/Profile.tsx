@@ -81,7 +81,8 @@ interface BookingDetail {
 
 // A student profile is considered incomplete if they never finished the matching
 // form. nationalCard is a required field in that form — if it's blank the user
-// bailed out early and we must redirect them back.
+// bailed out early and we show a "Complete Profile" prompt instead of the
+// regular profile view.
 const isStudentProfileIncomplete = (profile: StudentProfile): boolean =>
   !profile.nationalCard || profile.nationalCard.trim() === '';
 
@@ -345,16 +346,6 @@ export const Profile = () => {
           setStudentData(data);
           setStudentForm(data);
 
-          // ── Incomplete profile guard ──────────────────────────────────────
-          // If the student signed up but never completed the matching form
-          // (nationalCard is the clearest required sentinel), redirect them
-          // back to finish it. Show a toast so they know why.
-          if (isStudentProfileIncomplete(data)) {
-            toast.info('Please complete your profile to continue.', { duration: 4000 });
-            navigate('/matching', { replace: true });
-            return;
-          }
-
         } else if (user.type === 'landlord') {
           let data: LandlordProfile;
           if (user.id) {
@@ -439,6 +430,40 @@ export const Profile = () => {
               </p>
               <Button onClick={() => navigate('/admin')} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white">
                 Go to Admin Dashboard
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Incomplete student profile ───────────────────────────────────────────
+  // If the student signed up but never finished the matching form
+  // (nationalCard is the clearest required sentinel), show a prompt to
+  // complete it instead of the regular profile/bookings/reports view.
+  // This card disappears automatically once nationalCard is populated.
+  if (user.type === 'student' && studentData && isStudentProfileIncomplete(studentData)) {
+    return (
+      <div className="min-h-screen bg-[#B19CD9]/5 py-8">
+        <div className="container mx-auto px-4 max-w-2xl">
+          <Card>
+            <CardContent className="p-8 text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-[#FFC759]/10 rounded-full flex items-center justify-center">
+                <GraduationCap className="w-8 h-8 text-[#FFC759]" />
+              </div>
+              <div>
+                <p className="text-[#34495E] font-semibold text-lg">Your profile isn't complete yet</p>
+                <p className="text-[#717182] text-sm mt-2">
+                  Looks like you signed up but didn't finish the matching form. Complete it to unlock
+                  your profile and start finding roommates.
+                </p>
+              </div>
+              <Button
+                onClick={() => navigate('/matching')}
+                className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white"
+              >
+                Complete Profile
               </Button>
             </CardContent>
           </Card>
