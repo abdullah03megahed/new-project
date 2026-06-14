@@ -64,7 +64,7 @@ interface BookingDetail {
   id: number;
   startDate: string;
   endDate: string;
-  status: number;       // 1=Active, 2=Cancelled, 3=Completed
+  status: number;       // 1=Pending, 2=Cancelled, 3=Completed, 4=Ended, 5=PendingTransfer
   studentId: number;
   bedId: number;
   listingId: number;
@@ -85,17 +85,17 @@ const reportStatusLabel = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
-// status: 1=Active, 2=Cancelled, 3=Completed
+// Booking status: 1=Pending, 2=Cancelled, 3=Completed, 4=Ended, 5=PendingTransfer
 const bookingStatusLabel = (s: number) => {
-  if (s === 1) return { label: 'Active',    color: 'bg-green-100 text-green-700 border-green-200' };
-  if (s === 2) return { label: 'Cancelled', color: 'bg-gray-100 text-gray-500 border-gray-200' };
-  if (s === 3) return { label: 'Completed', color: 'bg-blue-100 text-blue-700 border-blue-200' };
-  if (s === 4) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
-  if (s === 5) return { label: 'Expired',   color: 'bg-red-100 text-red-600 border-red-200' };
+  if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
+  if (s === 3) return { label: 'Completed',        color: 'bg-blue-100 text-blue-700 border-blue-200' };
+  if (s === 4) return { label: 'Ended',            color: 'bg-slate-100 text-slate-600 border-slate-200' };
+  if (s === 5) return { label: 'Pending Transfer', color: 'bg-purple-100 text-purple-700 border-purple-200' };
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
-// Cancel is only allowed when booking is Active (status=1)
+// Cancel is only allowed while the booking is Pending (status=1)
 const canCancelBooking = (status: number): boolean => status === 1;
 
 const bookingTypeLabel = (t: number) => {
@@ -219,7 +219,7 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
                 View Listing
               </Button>
 
-              {/* Cancel button — only shown when booking is Active (status=1) */}
+              {/* Cancel button — only shown when booking is Pending (status=1) */}
               {showCancel && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -339,9 +339,9 @@ export const Profile = () => {
 
   // ─── Fetch bookings ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (activeTab !== 'bookings' || !user || user.type !== 'student' ) return;
+    if (activeTab !== 'bookings' || !user || user.type !== 'student') return;
     setBookingsLoading(true);
-    api.get<PaginatedBookings>(`/Booking/GetStudentBookings/PageIndex=1&PageSize=100`)
+    api.get<PaginatedBookings>(`/Booking/GetStudentBookings?PageIndex=1&PageSize=100`)
       .then(data => {
         const list: BookingSummary[] = data?.data || [];
         setBookings(list);
@@ -435,8 +435,6 @@ export const Profile = () => {
     setCancellingId(bookingId);
     try {
       await api.put(`/Booking/CancelBooking/${bookingId}`, {});
-      setBookings(prev => prev.filter(b => b.id !== bookingId));
-      setActiveBookingsCount(prev => Math.max(0, prev - 1));
       toast.success('Booking cancelled successfully.');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to cancel booking.');
