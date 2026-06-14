@@ -19,6 +19,7 @@ interface ListingCard {
     beds: { isBooked: boolean }[];
   }[];
   landlordPhoneNumber: string | null;
+  pricePerMonth?: number;
 }
 
 type HouseCardProps =
@@ -38,6 +39,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
     : 0;
 
   const lowestPrice = listing
+    ? listing.pricePerMonth ??
     ? listing.rooms.reduce((min, room) => Math.min(min, room.pricePerBed), Infinity)
     : 0;
 
