@@ -19,12 +19,14 @@ interface ListingCard {
     beds: { isBooked: boolean }[];
   }[];
   landlordPhoneNumber: string | null;
-  pricePerMonth: number;
+  pricePerMonth?: number;
 }
 
+type PriceMode = 'min' | 'max';
+
 type HouseCardProps =
-  | { house: House; listing?: never }
-  | { house?: never; listing: ListingCard };
+  | { house: House; listing?: never; priceMode?: PriceMode }
+  | { house?: never; listing: ListingCard; priceMode?: PriceMode };
 
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 
@@ -33,16 +35,30 @@ const listingImageUrl = (image?: string) => {
   return image.startsWith('http') ? image : `${IMAGE_BASE}${image}`;
 };
 
-export const HouseCard = ({ house, listing }: HouseCardProps) => {
+export const HouseCard = ({ house, listing, priceMode = 'min' }: HouseCardProps) => {
   const availableBeds = listing
     ? listing.rooms.flatMap((room) => room.beds).filter((bed) => !bed.isBooked).length
     : 0;
+
+  // Min/Max pricePerBed across this listing's rooms (ignoring unset/0 prices)
+  const roomPrices = listing
+    ? listing.rooms.map((r) => r.pricePerBed).filter((p) => p > 0)
+    : [];
+
+  const computedPrice = roomPrices.length > 0
+    ? (priceMode === 'max' ? Math.max(...roomPrices) : Math.min(...roomPrices))
+    : (listing?.pricePerMonth ?? 0);
+
+  const priceLabel = roomPrices.length > 0
+    ? (priceMode === 'max' ? 'Up to' : 'From')
+    : null;
 
   const card = house
     ? {
         id: house.id,
         title: house.title,
         price: house.price,
+        priceLabel: null as string | null,
         location: house.location,
         coverImage: house.coverImage,
         badge: house.featured ? 'Featured' : null,
@@ -55,7 +71,8 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
     : {
         id: listing.id,
         title: listing.title,
-        price: listing.pricePerMonth,
+        price: computedPrice,
+        priceLabel,
         location: `${listing.address}, ${listing.city}`,
         coverImage: listingImageUrl(listing.listingImages[0]),
         badge: listing.furnished ? 'Furnished' : null,
@@ -127,6 +144,9 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
 
           <div className="flex items-center justify-between mb-3">
             <div>
+              {card.priceLabel && (
+                <span className="text-[#717182] text-xs mr-1">{card.priceLabel}</span>
+              )}
               <span className="text-[#FF6F61]" style={{ fontSize: '18px', fontWeight: '600' }}>
                 EGP {card.price.toLocaleString()}
               </span>
