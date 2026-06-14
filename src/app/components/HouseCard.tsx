@@ -15,6 +15,7 @@ interface ListingCard {
   listingImages: string[];
   numberOfRooms: number;
   pricePerMonth: number;
+  pricePerBed?: number; // ✅ Added
   rooms: {
     pricePerBed: number;
     beds: { isBooked: boolean }[];
@@ -38,12 +39,17 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
     ? listing.rooms.flatMap((room) => room.beds).filter((bed) => !bed.isBooked).length
     : 0;
 
+  // ✅ Derive pricePerBed from top-level field OR fallback to first room's pricePerBed
+  const resolvedPricePerBed = listing
+    ? (listing.pricePerBed ?? listing.rooms?.[0]?.pricePerBed ?? 0)
+    : 0;
+
   const card = house
     ? {
         id: house.id,
         title: house.title,
         price: house.price,
-        priceLabel: null as string | null,
+        pricePerBed: null as number | null,
         location: house.location,
         coverImage: house.coverImage,
         badge: house.featured ? 'Featured' : null,
@@ -57,7 +63,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
         id: listing.id,
         title: listing.title,
         price: listing.pricePerMonth ?? 0,
-        priceLabel: null as string | null,
+        pricePerBed: resolvedPricePerBed > 0 ? resolvedPricePerBed : null, // ✅
         location: `${listing.address}, ${listing.city}`,
         coverImage: listingImageUrl(listing.listingImages[0]),
         badge: listing.furnished ? 'Furnished' : null,
@@ -127,15 +133,42 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
             <span className="text-[#717182]">{card.thirdMetric}</span>
           </div>
 
+          {/* ✅ Price section: shows both pricePerMonth and pricePerBed when available */}
           <div className="flex items-center justify-between mb-3">
-            <div>
-              {card.priceLabel && (
-                <span className="text-[#717182] text-xs mr-1">{card.priceLabel}</span>
+            <div className="flex flex-col gap-0.5">
+              {card.price > 0 ? (
+                <div>
+                  <span className="text-[#FF6F61]" style={{ fontSize: '18px', fontWeight: '600' }}>
+                    EGP {card.price.toLocaleString()}
+                  </span>
+                  <span className="text-[#717182] text-sm">/month</span>
+                </div>
+              ) : card.pricePerBed ? (
+                // ✅ If pricePerMonth is 0 but pricePerBed exists, show pricePerBed as primary
+                <div>
+                  <span className="text-[#FF6F61]" style={{ fontSize: '18px', fontWeight: '600' }}>
+                    EGP {card.pricePerBed.toLocaleString()}
+                  </span>
+                  <span className="text-[#717182] text-sm">/bed</span>
+                </div>
+              ) : (
+                <div>
+                  <span className="text-[#FF6F61]" style={{ fontSize: '18px', fontWeight: '600' }}>
+                    EGP 0
+                  </span>
+                  <span className="text-[#717182] text-sm">/month</span>
+                </div>
               )}
-              <span className="text-[#FF6F61]" style={{ fontSize: '18px', fontWeight: '600' }}>
-                EGP {(card.price ?? 0).toLocaleString()}
-              </span>
-              <span className="text-[#717182] text-sm">/month</span>
+
+              {/* ✅ Show pricePerBed as secondary line only when pricePerMonth is also present */}
+              {card.price > 0 && card.pricePerBed && (
+                <div>
+                  <span className="text-[#717182] text-xs font-medium">
+                    EGP {card.pricePerBed.toLocaleString()}
+                  </span>
+                  <span className="text-[#717182] text-xs">/bed</span>
+                </div>
+              )}
             </div>
           </div>
 
