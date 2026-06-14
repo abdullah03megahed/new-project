@@ -125,14 +125,25 @@ const statusInfo = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-500' };
 };
 
-// Fixed to match BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
-const bookingStatusInfo = (s: number) => {
+// Maps BookingStatusDto: Pending=1, Cancelled=2, Completed=3, Ended=4, PendingTransfer=5
+// Accepts both number and string since APIs sometimes serialize enums as strings.
+// Also handles 0-based variants (0=Pending … 4=PendingTransfer) just in case.
+const bookingStatusInfo = (raw: number | string) => {
+  // Normalise to number
+  const s = typeof raw === 'string' ? parseInt(raw, 10) : raw;
+
+  // 1-based (standard)
   if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
   if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
   if (s === 3) return { label: 'Completed',        color: 'bg-blue-100 text-blue-700 border-blue-200' };
   if (s === 4) return { label: 'Ended',            color: 'bg-purple-100 text-purple-700 border-purple-200' };
   if (s === 5) return { label: 'Pending Transfer', color: 'bg-orange-100 text-orange-700 border-orange-200' };
-  return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
+
+  // 0-based fallback
+  if (s === 0) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+
+  // Show the raw value so it's visible in the UI during debugging
+  return { label: `Status ${isNaN(s) ? raw : s}`, color: 'bg-gray-100 text-gray-400' };
 };
 
 const formatDate = (d: string) => {
@@ -765,6 +776,8 @@ export const Admin = () => {
       params.append('PageSize', '100');
       const data = await api.get<any>(`/Booking/GetAllBookings?${params}`);
       const list: BookingDto[] = Array.isArray(data) ? data : (data?.data || []);
+      // Debug: inspect raw statuses from the API in the browser console
+      console.log('[Bookings] raw list:', list.map(b => ({ id: b.id, status: b.status, typeof: typeof b.status })));
       setBookings(list);
       setBookingCount(data?.count ?? list.length);
     } catch (err: unknown) {
