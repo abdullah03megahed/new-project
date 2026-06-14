@@ -24,6 +24,7 @@ export interface Listing {
   canViewContact: boolean;
   landlordPhoneNumber: string | null;
   exactAddress: string | null;
+  pricePerMonth: number;
 }
 interface PaginatedListings {
   pageIndex: number; pageSize: number;
@@ -31,7 +32,6 @@ interface PaginatedListings {
 }
 
 export interface MatchedListing extends Listing {
-  pricePerMonth: number;
   isFullyRented: boolean;
   overallScore: number;
   compatibilityLabel: string;
@@ -131,7 +131,6 @@ export const Houses = () => {
       setMatchMode(false);
       return;
     }
-
     setMatchMode(true);
     setMatchLoading(true);
     setMatchError(false);
@@ -154,7 +153,6 @@ export const Houses = () => {
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
 
-        {/* Search & Filter Bar */}
         <div className="bg-white rounded-lg shadow-md p-4 mb-8">
           <div className="flex gap-3 flex-wrap items-end">
 
@@ -243,7 +241,6 @@ export const Houses = () => {
           )}
         </div>
 
-        {/* Results count */}
         <div className="mb-6 flex items-center justify-between">
           <p className="text-[#717182]">
             {matchMode ? (
@@ -261,7 +258,6 @@ export const Houses = () => {
           )}
         </div>
 
-        {/* Listings Grid */}
         {matchMode ? (
           matchLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -280,7 +276,7 @@ export const Houses = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {matchedListings.map((listing) => (
                 <div key={listing.id} className="relative">
-                  <HouseCard listing={{ ...listing, sortingOption }} />
+                  <HouseCard listing={listing} />
                   <div className="absolute top-3 right-3 z-10 bg-[#00A5A7] text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-md">
                     {listing.overallScore}% · {listing.compatibilityLabel}
                   </div>
@@ -303,7 +299,7 @@ export const Houses = () => {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {listings.map((listing) => (
-                <HouseCard key={listing.id} listing={{ ...listing, sortingOption }} />
+                <HouseCard key={listing.id} listing={listing} />
               ))}
             </div>
 
