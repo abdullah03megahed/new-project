@@ -14,6 +14,7 @@ interface ListingCard {
   furnished: boolean;
   listingImages: string[];
   numberOfRooms: number;
+  pricePerBed: number;
   rooms: {
     pricePerBed: number;
     beds: { isBooked: boolean }[];
@@ -21,11 +22,9 @@ interface ListingCard {
   landlordPhoneNumber: string | null;
 }
 
-type PriceMode = 'min' | 'max';
-
 type HouseCardProps =
-  | { house: House; listing?: never; priceMode?: PriceMode }
-  | { house?: never; listing: ListingCard; priceMode?: PriceMode };
+  | { house: House; listing?: never }
+  | { house?: never; listing: ListingCard };
 
 const IMAGE_BASE = 'https://unimate.runasp.net/';
 
@@ -34,23 +33,10 @@ const listingImageUrl = (image?: string) => {
   return image.startsWith('http') ? image : `${IMAGE_BASE}${image}`;
 };
 
-export const HouseCard = ({ house, listing, priceMode = 'min' }: HouseCardProps) => {
+export const HouseCard = ({ house, listing }: HouseCardProps) => {
   const availableBeds = listing
     ? listing.rooms.flatMap((room) => room.beds).filter((bed) => !bed.isBooked).length
     : 0;
-
-  // Min/Max pricePerBed across this listing's rooms (ignoring unset/0 prices)
-  const roomPrices = listing
-    ? listing.rooms.map((r) => r.pricePerBed).filter((p) => p > 0)
-    : [];
-
-  const computedPrice = roomPrices.length > 0
-    ? (priceMode === 'max' ? Math.max(...roomPrices) : Math.min(...roomPrices))
-    : 0;
-
-  const priceLabel = roomPrices.length > 0
-    ? (priceMode === 'max' ? 'Up to' : 'From')
-    : null;
 
   const card = house
     ? {
@@ -70,8 +56,8 @@ export const HouseCard = ({ house, listing, priceMode = 'min' }: HouseCardProps)
     : {
         id: listing.id,
         title: listing.title,
-        price: computedPrice,
-        priceLabel,
+        price: listing.pricePerBed,
+        priceLabel: 'From' as string | null,
         location: `${listing.address}, ${listing.city}`,
         coverImage: listingImageUrl(listing.listingImages[0]),
         badge: listing.furnished ? 'Furnished' : null,
