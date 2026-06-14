@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Search } from 'lucide-react';
+import { Search, Sparkles } from 'lucide-react';
 
 interface Bed { id: number; isBooked: boolean; }
 interface Room {
@@ -30,6 +30,14 @@ interface PaginatedListings {
   count: number; data: Listing[];
 }
 
+// Result shape returned by /api/Matching/roommate
+export interface MatchedListing extends Listing {
+  pricePerMonth: number;
+  isFullyRented: boolean;
+  overallScore: number;
+  compatibilityLabel: string;
+}
+
 export const Houses = () => {
   const [searchParams] = useSearchParams();
   const [city, setCity] = useState(searchParams.get('search') || '');
@@ -40,6 +48,12 @@ export const Houses = () => {
   const [pageIndex, setPageIndex] = useState(1);
   const [pageSize, setPageSize] = useState(10); // default 10, max 20
   const [loading, setLoading] = useState(true);
+
+  // Roommate matching state
+  const [matchMode, setMatchMode] = useState(false);
+  const [matchedListings, setMatchedListings] = useState<MatchedListing[]>([]);
+  const [matchLoading, setMatchLoading] = useState(false);
+  const [matchError, setMatchError] = useState(false);
 
   const fetchListings = async (
     page = 1,
@@ -79,9 +93,18 @@ export const Houses = () => {
     fetchListings(1);
   }, [genderPreference, sortingOption, pageSize]);
 
-  const handleSearch = () => fetchListings(1);
+  // Any normal search/filter action drops us back out of match mode
+  const exitMatchMode = () => {
+    if (matchMode) setMatchMode(false);
+  };
+
+  const handleSearch = () => {
+    exitMatchMode();
+    fetchListings(1);
+  };
 
   const handleReset = () => {
+    exitMatchMode();
     setCity('');
     setGenderPreference('all');
     setSortingOption('1');
@@ -90,9 +113,42 @@ export const Houses = () => {
   };
 
   const handlePageSizeChange = (val: string) => {
+    exitMatchMode();
     const ps = parseInt(val);
     setPageSize(ps);
     setPageIndex(1);
+  };
+
+  const handleGenderChange = (val: string) => {
+    exitMatchMode();
+    setGenderPreference(val);
+  };
+
+  const handleSortChange = (val: string) => {
+    exitMatchMode();
+    setSortingOption(val);
+  };
+
+  const handleFindMatch = async () => {
+    // Toggle off if already in match mode
+    if (matchMode) {
+      setMatchMode(false);
+      return;
+    }
+
+    setMatchMode(true);
+    setMatchLoading(true);
+    setMatchError(false);
+    try {
+      const data = await api.get<MatchedListing[]>('/Matching/roommate');
+      setMatchedListings(data || []);
+    } catch (err) {
+      console.error('Failed to fetch roommate matches', err);
+      setMatchedListings([]);
+      setMatchError(true);
+    } finally {
+      setMatchLoading(false);
+    }
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
@@ -121,7 +177,7 @@ export const Houses = () => {
             {/* Gender Preference */}
             <div className="space-y-1">
               <Label className="text-xs text-[#717182]">Gender Preference</Label>
-              <Select value={genderPreference} onValueChange={setGenderPreference}>
+              <Select value={genderPreference} onValueChange={handleGenderChange}>
                 <SelectTrigger className="h-11 w-40">
                   <SelectValue placeholder="Any gender" />
                 </SelectTrigger>
@@ -136,7 +192,7 @@ export const Houses = () => {
             {/* Sort */}
             <div className="space-y-1">
               <Label className="text-xs text-[#717182]">Sort By</Label>
-              <Select value={sortingOption} onValueChange={setSortingOption}>
+              <Select value={sortingOption} onValueChange={handleSortChange}>
                 <SelectTrigger className="h-11 w-44">
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
@@ -165,6 +221,11 @@ export const Houses = () => {
               <Search className="w-4 h-4 mr-2" />Search
             </Button>
 
+            <Button onClick={handleFindMatch} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6">
+              <Sparkles className="w-4 h-4 mr-2" />
+              {matchMode ? 'Back to Search' : 'Find A Match'}
+            </Button>
+
             {hasFilters && (
               <Button variant="ghost" onClick={handleReset} className="h-11 text-[#717182] hover:text-[#34495E]">
                 Reset
@@ -178,13 +239,13 @@ export const Houses = () => {
               {city.trim() && (
                 <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#00A5A7]/10 text-[#00A5A7] rounded-full text-sm">
                   City: {city}
-                  <button onClick={() => { setCity(''); fetchListings(1, '', genderPreference, sortingOption); }} className="ml-1 hover:text-[#FF6F61]">×</button>
+                  <button onClick={() => { exitMatchMode(); setCity(''); fetchListings(1, '', genderPreference, sortingOption); }} className="ml-1 hover:text-[#FF6F61]">×</button>
                 </span>
               )}
               {genderPreference !== 'all' && (
                 <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#B19CD9]/20 text-[#34495E] rounded-full text-sm">
                   {genderPreference === '1' ? 'Male Only' : 'Female Only'}
-                  <button onClick={() => setGenderPreference('all')} className="ml-1 hover:text-[#FF6F61]">×</button>
+                  <button onClick={() => { exitMatchMode(); setGenderPreference('all'); }} className="ml-1 hover:text-[#FF6F61]">×</button>
                 </span>
               )}
             </div>
@@ -194,17 +255,54 @@ export const Houses = () => {
         {/* Results count */}
         <div className="mb-6 flex items-center justify-between">
           <p className="text-[#717182]">
-            {loading ? 'Searching...' : (
-              <>Found <span className="text-[#00A5A7] font-medium">{totalCount}</span> {totalCount === 1 ? 'property' : 'properties'}</>
+            {matchMode ? (
+              matchLoading ? 'Finding your best matches...' : (
+                <>Found <span className="text-[#00A5A7] font-medium">{matchedListings.length}</span> {matchedListings.length === 1 ? 'compatible roommate' : 'compatible roommates'}</>
+              )
+            ) : (
+              loading ? 'Searching...' : (
+                <>Found <span className="text-[#00A5A7] font-medium">{totalCount}</span> {totalCount === 1 ? 'property' : 'properties'}</>
+              )
             )}
           </p>
-          {totalPages > 1 && (
+          {!matchMode && totalPages > 1 && (
             <p className="text-[#717182] text-sm">Page {pageIndex} of {totalPages}</p>
           )}
         </div>
 
         {/* Listings Grid */}
-        {loading ? (
+        {matchMode ? (
+          matchLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="bg-white rounded-lg h-64 animate-pulse" />
+              ))}
+            </div>
+          ) : matchError ? (
+            <div className="text-center py-16 space-y-3">
+              <p className="text-[#717182] text-lg">Something went wrong while finding your matches</p>
+              <Button variant="outline" onClick={handleFindMatch} className="border-[#00A5A7] text-[#00A5A7]">
+                Try again
+              </Button>
+            </div>
+          ) : matchedListings.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {matchedListings.map((listing) => (
+                <div key={listing.id} className="relative">
+                  <HouseCard listing={listing} />
+                  <div className="absolute top-3 right-3 z-10 bg-[#00A5A7] text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-md">
+                    {listing.overallScore}% · {listing.compatibilityLabel}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-16 space-y-3">
+              <p className="text-[#717182] text-lg">No roommate matches found yet</p>
+              <p className="text-[#717182] text-sm">Try completing your roommate preferences to get matches</p>
+            </div>
+          )
+        ) : loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Array.from({ length: pageSize }).map((_, i) => (
               <div key={i} className="bg-white rounded-lg h-64 animate-pulse" />
