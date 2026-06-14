@@ -217,13 +217,10 @@ export const Matching = () => {
                 <Textarea placeholder="Tell potential roommates about yourself..." value={formData.bio} onChange={(e) => setFormData({ ...formData, bio: e.target.value })} rows={3} className="border-[#00A5A7]/20" />
               </div>
 
-              <div className="pt-4 space-y-3">
+              <div className="pt-4">
                 <Button type="submit" disabled={loading} className="w-full h-12 bg-gradient-to-r from-[#00A5A7] to-[#00A5A7]/90 text-white shadow-lg" style={{ fontSize: '16px', fontWeight: '600' }}>
                   {loading ? 'Saving...' : 'Complete Profile & Find Matches'}
                 </Button>
-                <button type="button" onClick={() => navigate('/')} className="w-full text-center text-[#717182] text-sm hover:underline">
-                  Skip for now
-                </button>
               </div>
             </form>
           </CardContent>
