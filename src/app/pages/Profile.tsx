@@ -53,6 +53,7 @@ interface BookingSummary {
   endDate: string;
   listingId: number;
   bedId: number;
+  roomId: number;
 }
 
 interface PaginatedBookings {
@@ -338,9 +339,9 @@ export const Profile = () => {
 
   // ─── Fetch bookings ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (activeTab !== 'bookings' || !user || user.type !== 'student' || !user.id) return;
+    if (activeTab !== 'bookings' || !user || user.type !== 'student' ) return;
     setBookingsLoading(true);
-    api.get<PaginatedBookings>(`/Booking/GetStudentBookings/${user.id}?PageIndex=1&PageSize=100`)
+    api.get<PaginatedBookings>(`/Booking/GetStudentBookings/PageIndex=1&PageSize=100`)
       .then(data => {
         const list: BookingSummary[] = data?.data || [];
         setBookings(list);
