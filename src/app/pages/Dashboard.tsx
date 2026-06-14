@@ -277,12 +277,14 @@ export const Dashboard = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Fetch bookings (lazy, once, when bookings tab is first opened) ─────────
+  // ─── Fetch bookings (on mount, once) ────────────────────────────────────────
   // FIX: /Booking/GetLandLordBookings takes NO path parameter — the server
   // infers the landlord from the auth token. Only PageIndex/PageSize are accepted.
+  // NOTE: This now runs on initial mount (not lazily on tab switch) so that
+  // bookedBedIds is populated before the Properties tab renders bed counts.
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
-    if (activeTab !== 'bookings' || bookingsFetched) return;
+    if (bookingsFetched) return;
     setBookingsLoading(true);
 
     const loadBookings = async () => {
@@ -350,7 +352,7 @@ export const Dashboard = () => {
 
     loadBookings();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, bookingsFetched]);
+  }, [bookingsFetched]);
 
   const handleDelete = async (listingId: number) => {
     try {
