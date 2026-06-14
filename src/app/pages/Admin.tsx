@@ -775,9 +775,15 @@ export const Admin = () => {
       params.append('PageIndex', '1');
       params.append('PageSize', '100');
       const data = await api.get<any>(`/Booking/GetAllBookings?${params}`);
-      const list: BookingDto[] = Array.isArray(data) ? data : (data?.data || []);
-      // Debug: inspect raw statuses from the API in the browser console
-      console.log('[Bookings] raw list:', list.map(b => ({ id: b.id, status: b.status, typeof: typeof b.status })));
+      const rawList: any[] = Array.isArray(data) ? data : (data?.data || []);
+      // Debug: log the complete first object so we can see every field name
+      if (rawList.length > 0) console.log('[Bookings] full first item:', rawList[0]);
+
+      // Normalise: map every possible status field name the backend might use
+      const list: BookingDto[] = rawList.map((b: any) => ({
+        ...b,
+        status: b.status ?? b.bookingStatus ?? b.Status ?? b.BookingStatus ?? b.state ?? b.State ?? 0,
+      }));
       setBookings(list);
       setBookingCount(data?.count ?? list.length);
     } catch (err: unknown) {
