@@ -134,6 +134,7 @@ const BookingDetailDialog = ({ booking, open, onClose, listingTitle }: BookingDe
   const navigate = useNavigate();
   if (!booking) return null;
   const { label, color } = bookingStatusInfo(booking.status);
+  const isSingleBed = booking.type === 1;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -168,15 +169,27 @@ const BookingDetailDialog = ({ booking, open, onClose, listingTitle }: BookingDe
               </div>
             )}
 
+            {/* Room + Type — always shown */}
             <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-              <Bed className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+              <Home className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
               <div>
-                <p className="text-xs text-[#717182]">Bed / Type</p>
+                <p className="text-xs text-[#717182]">Room / Type</p>
                 <p className="text-[#34495E] font-medium">
-                  Bed #{booking.bedId} · {bookingTypeLabel(booking.type)}
+                  Room #{booking.roomId} · {bookingTypeLabel(booking.type)}
                 </p>
               </div>
             </div>
+
+            {/* Bed — only shown for single-bed bookings */}
+            {isSingleBed && (
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <Bed className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-[#717182]">Bed</p>
+                  <p className="text-[#34495E] font-medium">Bed #{booking.bedId}</p>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
               <Calendar className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
