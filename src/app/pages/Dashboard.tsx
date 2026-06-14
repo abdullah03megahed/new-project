@@ -110,8 +110,14 @@ const formatDate = (d: string) => {
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-// A bed is "actively booked" when its booking status is Pending(1) or PendingTransfer(5).
-// Cancelled/Completed/Ended beds are free again.
+// A bed is "occupied" (counts against availability) when its booking status is
+// Pending(1), Completed(3), or PendingTransfer(5).
+// Cancelled(2) and Ended(4) free the bed up again.
+const isBedOccupiedStatus = (s: number) => s === 1 || s === 3 || s === 5;
+
+// A booking is "active" for display purposes (Bookings tab badge/count) when
+// it's Pending(1) or PendingTransfer(5). Completed bookings still occupy a bed
+// (see isBedOccupiedStatus above) but aren't counted as "active" here.
 const isActiveBookingStatus = (s: number) => s === 1 || s === 5;
 
 // ─── Booking Detail Dialog ────────────────────────────────────────────────────
@@ -223,7 +229,8 @@ export const Dashboard = () => {
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [bookingsFetched, setBookingsFetched] = useState(false);
 
-  // Set of bedIds that are actively booked — used to correct listing bed counts
+  // Set of bedIds that are occupied (Pending/Completed/PendingTransfer) — used
+  // to correct listing bed counts
   const [bookedBedIds, setBookedBedIds] = useState<Set<number>>(new Set());
 
   // Detail dialog
@@ -324,14 +331,15 @@ export const Dashboard = () => {
         setBookings(details);
         setBookingsFetched(true);
 
-        // Build the set of actively-booked bed IDs so the properties tab can
-        // show accurate availability even before the user opens the bookings tab.
-        const activeIds = new Set(
+        // Build the set of occupied bed IDs (Pending/Completed/PendingTransfer)
+        // so the properties tab can show accurate availability even before the
+        // user opens the bookings tab.
+        const occupiedIds = new Set(
           details
-            .filter(b => isActiveBookingStatus(b.status))
+            .filter(b => isBedOccupiedStatus(b.status))
             .map(b => b.bedId)
         );
-        setBookedBedIds(activeIds);
+        setBookedBedIds(occupiedIds);
       } catch (err) {
         console.error('[Dashboard] Booking fetch error:', err);
         toast.error('Failed to load bookings.');
@@ -366,6 +374,7 @@ export const Dashboard = () => {
   // ─── Bed count helper ───────────────────────────────────────────────────────
   // The listing endpoint's beds[].isBooked field can be stale. We cross-reference
   // with the live booking data (bookedBedIds) when available for accuracy.
+  // A bed is unavailable if it has a Pending, Completed, or PendingTransfer booking.
   const getBedCounts = (listing: Listing) => {
     const allBeds = listing.rooms.flatMap(r => r.beds || []);
 
@@ -382,10 +391,10 @@ export const Dashboard = () => {
     const total = listing.rooms.reduce((sum, r) => sum + (r.bedCount || 0), 0);
 
     if (bookedBedIds.size > 0) {
-      // Count how many of our booked beds belong to this listing's rooms
+      // Count how many occupied beds belong to this listing's rooms
       const listingRoomIds = new Set(listing.rooms.map(r => r.id));
       const bookedInListing = bookings.filter(
-        b => isActiveBookingStatus(b.status) && listingRoomIds.has(b.roomId)
+        b => isBedOccupiedStatus(b.status) && listingRoomIds.has(b.roomId)
       ).length;
       return { available: Math.max(0, total - bookedInListing), total };
     }
@@ -407,7 +416,7 @@ export const Dashboard = () => {
     const total = room.bedCount || 0;
     if (bookedBedIds.size > 0) {
       const bookedInRoom = bookings.filter(
-        b => isActiveBookingStatus(b.status) && b.roomId === room.id
+        b => isBedOccupiedStatus(b.status) && b.roomId === room.id
       ).length;
       return { available: Math.max(0, total - bookedInRoom), total };
     }
@@ -423,6 +432,7 @@ export const Dashboard = () => {
   const allPrices   = listings.flatMap(l => l.rooms.map(r => r.pricePerBed)).filter(p => p > 0);
   const lowestPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
 
+  // "Active" bookings shown on the Bookings tab badge/header (Pending + PendingTransfer)
   const activeBookingsCount = bookings.filter(b => isActiveBookingStatus(b.status)).length;
 
   const planKey   = subscription?.planName?.toLowerCase() ?? 'freemium';
