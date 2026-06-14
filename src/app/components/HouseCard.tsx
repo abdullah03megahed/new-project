@@ -40,7 +40,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
 
   const lowestPrice = listing
     ? listing.pricePerMonth ??
-    ? listing.rooms.reduce((min, room) => Math.min(min, room.pricePerBed), Infinity)
+      listing.rooms.reduce((min, room) => Math.min(min, room.pricePerBed), Infinity)
     : 0;
 
   const card = house
