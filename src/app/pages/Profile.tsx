@@ -80,11 +80,13 @@ interface BookingDetail {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // A student profile is considered incomplete if they never finished the matching
-// form. nationalCard is a required field in that form — if it's blank the user
-// bailed out early and we show a "Complete Profile" prompt instead of the
-// regular profile view.
-const isStudentProfileIncomplete = (profile: StudentProfile): boolean =>
-  !profile.nationalCard || profile.nationalCard.trim() === '';
+// form. nationalCard is a required field in that form — if it's blank/null/undefined
+// the user bailed out early and we show a "Complete Profile" prompt.
+const isStudentProfileIncomplete = (profile: StudentProfile | null | undefined): boolean => {
+  if (!profile) return false; // no data loaded yet — don't show the prompt
+  const card = profile.nationalCard;
+  return !card || (typeof card === 'string' && card.trim() === '');
+};
 
 const reportStatusLabel = (s: number) => {
   if (s === 1) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
@@ -311,6 +313,9 @@ export const Profile = () => {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // ── NEW: track whether the student profile fetch failed (404 / no record yet)
+  const [studentNotFound, setStudentNotFound] = useState(false);
+
   const [studentData, setStudentData] = useState<StudentProfile | null>(null);
   const [landlordData, setLandlordData] = useState<LandlordProfile | null>(null);
   const [studentForm, setStudentForm] = useState<StudentProfile | null>(null);
@@ -343,6 +348,8 @@ export const Profile = () => {
             data = await api.get<StudentProfile>(`/Student/Email?email=${encodeURIComponent(user.email)}`);
             if (data?.id) updateUser({ id: String(data.id) });
           }
+          // Always set the data — even if nationalCard is missing.
+          // The incomplete-profile guard below will handle showing the prompt.
           setStudentData(data);
           setStudentForm(data);
 
@@ -359,7 +366,13 @@ export const Profile = () => {
         }
       } catch (err) {
         console.error('[Profile] Failed to load profile:', err);
-        toast.error('Failed to load profile data.');
+        // If a student record doesn't exist at all yet, flag it so we can
+        // still show the "Complete Profile" prompt.
+        if (user.type === 'student') {
+          setStudentNotFound(true);
+        } else {
+          toast.error('Failed to load profile data.');
+        }
       } finally {
         setLoading(false);
       }
@@ -439,11 +452,11 @@ export const Profile = () => {
   }
 
   // ─── Incomplete student profile ───────────────────────────────────────────
-  // If the student signed up but never finished the matching form
-  // (nationalCard is the clearest required sentinel), show a prompt to
-  // complete it instead of the regular profile/bookings/reports view.
-  // This card disappears automatically once nationalCard is populated.
-  if (user.type === 'student' && studentData && isStudentProfileIncomplete(studentData)) {
+  // Show this when:
+  //   (a) the student record was fetched but nationalCard is empty, OR
+  //   (b) the student record didn't exist at all (API error / 404)
+  // The card disappears automatically once nationalCard is populated.
+  if (user.type === 'student' && (studentNotFound || isStudentProfileIncomplete(studentData))) {
     return (
       <div className="min-h-screen bg-[#B19CD9]/5 py-8">
         <div className="container mx-auto px-4 max-w-2xl">
