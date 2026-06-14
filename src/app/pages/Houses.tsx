@@ -24,14 +24,15 @@ export interface Listing {
   canViewContact: boolean;
   landlordPhoneNumber: string | null;
   exactAddress: string | null;
-  pricePerMonth: number;
 }
 interface PaginatedListings {
   pageIndex: number; pageSize: number;
   count: number; data: Listing[];
 }
 
+// Result shape returned by /api/Matching/roommate
 export interface MatchedListing extends Listing {
+  pricePerMonth: number;
   isFullyRented: boolean;
   overallScore: number;
   compatibilityLabel: string;
@@ -45,9 +46,10 @@ export const Houses = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [pageIndex, setPageIndex] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(10); // default 10, max 20
   const [loading, setLoading] = useState(true);
 
+  // Roommate matching state
   const [matchMode, setMatchMode] = useState(false);
   const [matchedListings, setMatchedListings] = useState<MatchedListing[]>([]);
   const [matchLoading, setMatchLoading] = useState(false);
@@ -91,6 +93,7 @@ export const Houses = () => {
     fetchListings(1);
   }, [genderPreference, sortingOption, pageSize]);
 
+  // Any normal search/filter action drops us back out of match mode
   const exitMatchMode = () => {
     if (matchMode) setMatchMode(false);
   };
@@ -127,10 +130,12 @@ export const Houses = () => {
   };
 
   const handleFindMatch = async () => {
+    // Toggle off if already in match mode
     if (matchMode) {
       setMatchMode(false);
       return;
     }
+
     setMatchMode(true);
     setMatchLoading(true);
     setMatchError(false);
@@ -149,13 +154,19 @@ export const Houses = () => {
   const totalPages = Math.ceil(totalCount / pageSize);
   const hasFilters = city.trim() !== '' || genderPreference !== 'all' || sortingOption !== '1';
 
+  // Drives whether HouseCard shows the lowest or highest pricePerBed for each listing:
+  // SortingOption "1" = Price Low to High -> show minimum, "2" = High to Low -> show maximum
+  const priceMode: 'min' | 'max' = sortingOption === '2' ? 'max' : 'min';
+
   return (
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
 
+        {/* Search & Filter Bar */}
         <div className="bg-white rounded-lg shadow-md p-4 mb-8">
           <div className="flex gap-3 flex-wrap items-end">
 
+            {/* City */}
             <div className="flex-1 min-w-[200px] space-y-1">
               <Label className="text-xs text-[#717182]">City</Label>
               <Input
@@ -167,6 +178,7 @@ export const Houses = () => {
               />
             </div>
 
+            {/* Gender Preference */}
             <div className="space-y-1">
               <Label className="text-xs text-[#717182]">Gender Preference</Label>
               <Select value={genderPreference} onValueChange={handleGenderChange}>
@@ -181,6 +193,7 @@ export const Houses = () => {
               </Select>
             </div>
 
+            {/* Sort */}
             <div className="space-y-1">
               <Label className="text-xs text-[#717182]">Sort By</Label>
               <Select value={sortingOption} onValueChange={handleSortChange}>
@@ -194,6 +207,7 @@ export const Houses = () => {
               </Select>
             </div>
 
+            {/* Per page — default 10, max 20 */}
             <div className="space-y-1">
               <Label className="text-xs text-[#717182]">Per Page</Label>
               <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
@@ -223,6 +237,7 @@ export const Houses = () => {
             )}
           </div>
 
+          {/* Active filter tags */}
           {(city.trim() || genderPreference !== 'all') && (
             <div className="flex gap-2 mt-3 flex-wrap">
               {city.trim() && (
@@ -241,6 +256,7 @@ export const Houses = () => {
           )}
         </div>
 
+        {/* Results count */}
         <div className="mb-6 flex items-center justify-between">
           <p className="text-[#717182]">
             {matchMode ? (
@@ -258,6 +274,7 @@ export const Houses = () => {
           )}
         </div>
 
+        {/* Listings Grid */}
         {matchMode ? (
           matchLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -276,7 +293,7 @@ export const Houses = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {matchedListings.map((listing) => (
                 <div key={listing.id} className="relative">
-                  <HouseCard listing={listing} />
+                  <HouseCard listing={listing} priceMode={priceMode} />
                   <div className="absolute top-3 right-3 z-10 bg-[#00A5A7] text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-md">
                     {listing.overallScore}% · {listing.compatibilityLabel}
                   </div>
@@ -299,7 +316,7 @@ export const Houses = () => {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {listings.map((listing) => (
-                <HouseCard key={listing.id} listing={listing} />
+                <HouseCard key={listing.id} listing={listing} priceMode={priceMode} />
               ))}
             </div>
 
