@@ -65,7 +65,7 @@ interface BookingDetail {
   id: number;
   startDate: string;
   endDate: string;
-  status: number;       // 1=Pending, 2=Cancelled, 3=Completed, 4=Ended, 5=PendingTransfer
+  status: number;
   studentId: number;
   bedId: number;
   listingId: number;
@@ -74,10 +74,16 @@ interface BookingDetail {
   roomId: number;
   landlordName: string;
   amount: number;
-  type: number;         // 1=Single Bed, 2=Entire Room
+  type: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// A student profile is considered incomplete if they never finished the matching
+// form. nationalCard is a required field in that form — if it's blank the user
+// bailed out early and we must redirect them back.
+const isStudentProfileIncomplete = (profile: StudentProfile): boolean =>
+  !profile.nationalCard || profile.nationalCard.trim() === '';
 
 const reportStatusLabel = (s: number) => {
   if (s === 1) return { label: 'Pending',   color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
@@ -86,7 +92,6 @@ const reportStatusLabel = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
-// Booking status: 1=Pending, 2=Cancelled, 3=Completed, 4=Ended, 5=PendingTransfer
 const bookingStatusLabel = (s: number) => {
   if (s === 1) return { label: 'Pending',          color: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
   if (s === 2) return { label: 'Cancelled',        color: 'bg-gray-100 text-gray-500 border-gray-200' };
@@ -96,7 +101,6 @@ const bookingStatusLabel = (s: number) => {
   return { label: 'Unknown', color: 'bg-gray-100 text-gray-400' };
 };
 
-// Cancel is only allowed while the booking is Pending (status=1)
 const canCancelBooking = (status: number): boolean => status === 3 || status === 5;
 
 const bookingTypeLabel = (t: number) => {
@@ -146,7 +150,7 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
 
   const statusInfo = detail ? bookingStatusLabel(detail.status) : { label: '', color: '' };
   const showCancel = detail ? canCancelBooking(detail.status) : false;
-  const showContinuePayment = detail ? detail.status === 1 : false; // Pending
+  const showContinuePayment = detail ? detail.status === 1 : false;
 
   const handlePaymentSuccess = () => {
     toast.success('Payment successful!');
@@ -245,7 +249,6 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
                 View Listing
               </Button>
 
-              {/* Continue Payment — only shown when booking is Pending (status=1) */}
               {showContinuePayment && (
                 <Button
                   size="sm"
@@ -256,9 +259,6 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
                 </Button>
               )}
 
-              {/* Cancel button — only shown when booking is Completed (3) or Pending Transfer (5) */}
-
-              
               {showCancel && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -344,6 +344,17 @@ export const Profile = () => {
           }
           setStudentData(data);
           setStudentForm(data);
+
+          // ── Incomplete profile guard ──────────────────────────────────────
+          // If the student signed up but never completed the matching form
+          // (nationalCard is the clearest required sentinel), redirect them
+          // back to finish it. Show a toast so they know why.
+          if (isStudentProfileIncomplete(data)) {
+            toast.info('Please complete your profile to continue.', { duration: 4000 });
+            navigate('/matching', { replace: true });
+            return;
+          }
+
         } else if (user.type === 'landlord') {
           let data: LandlordProfile;
           if (user.id) {
