@@ -19,8 +19,7 @@ interface ListingCard {
     beds: { isBooked: boolean }[];
   }[];
   landlordPhoneNumber: string | null;
-  pricePerMonth?: number;
-  sortingOption?: string;
+  pricePerMonth: number;
 }
 
 type HouseCardProps =
@@ -37,15 +36,6 @@ const listingImageUrl = (image?: string) => {
 export const HouseCard = ({ house, listing }: HouseCardProps) => {
   const availableBeds = listing
     ? listing.rooms.flatMap((room) => room.beds).filter((bed) => !bed.isBooked).length
-    : 0;
-
-  const prices = listing ? listing.rooms.map((r) => r.pricePerBed) : [];
-
-  const displayPrice = listing
-    ? listing.pricePerMonth ??
-      (listing.sortingOption === '2'
-        ? Math.max(...prices)
-        : Math.min(...prices))
     : 0;
 
   const card = house
@@ -65,7 +55,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
     : {
         id: listing.id,
         title: listing.title,
-        price: Number.isFinite(displayPrice) ? displayPrice : 0,
+        price: listing.pricePerMonth,
         location: `${listing.address}, ${listing.city}`,
         coverImage: listingImageUrl(listing.listingImages[0]),
         badge: listing.furnished ? 'Furnished' : null,
