@@ -15,6 +15,7 @@ interface Room {
 }
 export interface Listing {
   id: number; title: string; description: string;
+  pricePerMonth: number;
   address: string; street: string; city: string;
   furnished: boolean; wifiAvailable: boolean;
   numberOfRooms: number; genderPreference: number;
@@ -32,7 +33,6 @@ interface PaginatedListings {
 
 // Result shape returned by /api/Matching/roommate
 export interface MatchedListing extends Listing {
-  pricePerMonth: number;
   isFullyRented: boolean;
   overallScore: number;
   compatibilityLabel: string;
@@ -153,10 +153,6 @@ export const Houses = () => {
 
   const totalPages = Math.ceil(totalCount / pageSize);
   const hasFilters = city.trim() !== '' || genderPreference !== 'all' || sortingOption !== '1';
-
-  // Drives whether HouseCard shows the lowest or highest pricePerBed for each listing:
-  // SortingOption "1" = Price Low to High -> show minimum, "2" = High to Low -> show maximum
-  const priceMode: 'min' | 'max' = sortingOption === '2' ? 'max' : 'min';
 
   return (
     <div className="min-h-screen bg-[#B19CD9]/5">
@@ -293,7 +289,7 @@ export const Houses = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {matchedListings.map((listing) => (
                 <div key={listing.id} className="relative">
-                  <HouseCard listing={listing} priceMode={priceMode} />
+                  <HouseCard listing={listing} />
                   <div className="absolute top-3 right-3 z-10 bg-[#00A5A7] text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-md">
                     {listing.overallScore}% · {listing.compatibilityLabel}
                   </div>
@@ -316,7 +312,7 @@ export const Houses = () => {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {listings.map((listing) => (
-                <HouseCard key={listing.id} listing={listing} priceMode={priceMode} />
+                <HouseCard key={listing.id} listing={listing} />
               ))}
             </div>
 
