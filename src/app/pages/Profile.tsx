@@ -21,6 +21,7 @@ import {
 } from '../components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router';
+import { PaymentModal } from '../components/PaymentModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,7 +128,16 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
   const navigate = useNavigate();
   const [detail, setDetail] = useState<BookingDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
 
+  const fetchDetail = () =>{
+    if(!bookingID) return;
+    setloading(true);
+    api.get<BookingDetail>('/Booking/GetBooking/${bookingID}')
+        .then(data => setDetail(data))
+        .catch(() => toast.error('Failedto load booking details.'))
+        .finally(() = >setLoading(fals));
+  };
   useEffect(() => {
     if (!open || !bookingId) return;
     setLoading(true);
@@ -139,6 +149,12 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
 
   const statusInfo = detail ? bookingStatusLabel(detail.status) : { label: '', color: '' };
   const showCancel = detail ? canCancelBooking(detail.status) : false;
+  const showContinuePayment = detail ? detail.status === 1 : false; // Pending
+
+  const handlePaymentSuccess = () => {
+    toast.success('Payment successful!');
+    fetchDetail();
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -146,6 +162,18 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
         <DialogHeader>
           <DialogTitle className="text-[#34495E]">Booking Details</DialogTitle>
         </DialogHeader>
+
+        {detail && (
+          <PaymentModal
+            open={paymentOpen}
+            onClose={() => setPaymentOpen(false)}
+            onSuccess={handlePaymentSuccess}
+            type="booking"
+            resourceId={detail.id}
+            label={`Booking #${detail.id}`}
+            amount={detail.amount}
+          />
+        )}
 
         {loading ? (
           <div className="space-y-3 py-4">
@@ -211,7 +239,7 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
               )}
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex gap-2 pt-2 flex-wrap">
               <Button
                 variant="outline" size="sm"
                 onClick={() => { onClose(); navigate(`/house/${detail.listingId}`); }}
@@ -219,6 +247,19 @@ const BookingDetailDialog = ({ bookingId, open, onClose, onCancel, cancellingId 
               >
                 View Listing
               </Button>
+
+              {/* Continue Payment — only shown when booking is Pending (status=1) */}
+              {showContinuePayment && (
+                <Button
+                  size="sm"
+                  onClick={() => setPaymentOpen(true)}
+                  className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white flex-1"
+                >
+                  Continue Payment
+                </Button>
+              )}
+
+              {/* Cancel button — only shown when booking is Completed (3) or Pending Transfer (5) */}
 
               {/* Cancel button — only shown when booking is Pending (status=1) */}
               {showCancel && (
