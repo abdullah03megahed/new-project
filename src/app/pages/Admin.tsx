@@ -774,18 +774,41 @@ export const Admin = () => {
       if (bookingStatusFilter !== 'all') params.append('Status', bookingStatusFilter);
       params.append('PageIndex', '1');
       params.append('PageSize', '100');
+
+      // Step 1: get the list (has id, dates, names — but no status field)
       const data = await api.get<any>(`/Booking/GetAllBookings?${params}`);
       const rawList: any[] = Array.isArray(data) ? data : (data?.data || []);
-      // Debug: log the complete first object so we can see every field name
-      if (rawList.length > 0) console.log('[Bookings] full first item:', rawList[0]);
+      const totalCount = data?.count ?? rawList.length;
 
-      // Normalise: map every possible status field name the backend might use
-      const list: BookingDto[] = rawList.map((b: any) => ({
-        ...b,
-        status: b.status ?? b.bookingStatus ?? b.Status ?? b.BookingStatus ?? b.state ?? b.State ?? 0,
-      }));
-      setBookings(list);
-      setBookingCount(data?.count ?? list.length);
+      // Step 2: fetch full details for each booking to get status
+      const detailed: BookingDto[] = await Promise.all(
+        rawList.map(async (b: any) => {
+          try {
+            const full = await api.get<any>(`/Booking/GetBooking/${b.id}`);
+            return {
+              id:               full.id,
+              startDate:        full.startDate,
+              endDate:          full.endDate,
+              status:           full.status,
+              studentId:        full.studentId,
+              studentName:      full.studentName  ?? b.studentName,
+              landlordId:       full.landLordId,
+              landlordName:     full.landlordName ?? b.landlordName,
+              listingId:        full.listingId,
+              listingTitle:     b.listingTitle,
+              bedId:            full.bedId,
+              amount:           full.amount,
+              durationInMonths: b.durationInMonths,
+            } as BookingDto;
+          } catch {
+            // If individual fetch fails, return the list item as-is
+            return b as BookingDto;
+          }
+        })
+      );
+
+      setBookings(detailed);
+      setBookingCount(totalCount);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load bookings.');
     } finally { setBookingsLoading(false); }
