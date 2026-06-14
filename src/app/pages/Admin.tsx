@@ -44,7 +44,9 @@ interface Student {
   email: string; phoneNumber?: string; gender?: number;
   facultyField?: string; homeTown?: string; accountId: string; isBanned?: boolean;
 }
-// GetAllReports returns reporterId / reportedId as account GUIDs
+// GetAllReports: reporterId is always an account GUID.
+// reportedId is an account GUID for user reports (type !== 1), but a numeric
+// listing ID (as a string) for listing reports (type === 1).
 interface Report {
   id?: number;
   reporterId: string;
@@ -79,6 +81,27 @@ interface UserLookup {
   nationalId?: string;
   id: number;
   accountId: string;
+}
+
+// Result of looking up a listing by id
+interface ListingLookup {
+  id: number;
+  title: string;
+  address?: string;
+  city?: string;
+  pricePerMonth?: number;
+  landlordName?: string;
+  status: number;
+  listingImages: string[];
+}
+
+// A banned account, enriched with profile info if we could resolve it
+interface BannedEntry {
+  accountId: string;
+  name: string;
+  email: string;
+  kind?: 'student' | 'landlord';
+  id?: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -148,6 +171,44 @@ async function lookupUserByAccountId(accountId: string): Promise<UserLookup | nu
   } catch { /* not found */ }
 
   return null;
+}
+
+// ─── Lookup listing by id ──────────────────────────────────────────────────────
+// Used for "Listing Report" reports, where reportedId is actually a listing ID.
+async function lookupListingById(listingId: string | number): Promise<ListingLookup | null> {
+  try {
+    const data = await api.get<any>(`/Listing/${listingId}`);
+    if (data?.id != null) {
+      return {
+        id: data.id,
+        title: data.title,
+        address: data.address,
+        city: data.city,
+        pricePerMonth: data.pricePerMonth,
+        landlordName: data.landlordName,
+        status: data.status,
+        listingImages: data.listingImages || [],
+      };
+    }
+  } catch { /* not found */ }
+  return null;
+}
+
+// ─── Unban API helper ───────────────────────────────────────────────────────────
+// PUT /Ban/UnBanUser/{userId} responds 200 OK with an EMPTY body. If the shared
+// `api` helper unconditionally calls response.json(), that throws
+// "Unexpected end of JSON input" even though the unban itself succeeded.
+// We swallow that *specific* error here so the unban still completes cleanly
+// and callers only see toast errors for genuine failures.
+async function unbanUser(accountId: string): Promise<void> {
+  try {
+    await api.put(`/Ban/UnBanUser/${accountId}`, {});
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes('Unexpected end of JSON input')) {
+      return; // request succeeded — response body was just empty
+    }
+    throw err;
+  }
 }
 
 // ─── User Info Dialog — looks up by accountId, shows details ─────────────────
@@ -238,6 +299,127 @@ const UserInfoDialog = ({ accountId, label }: UserInfoDialogProps) => {
   );
 };
 
+// ─── Listing Info Dialog — looks up a listing by id, shows details ────────────
+
+interface ListingInfoDialogProps {
+  listingId: string;
+  label: string; // shown as the clickable button text
+}
+
+const ListingInfoDialog = ({ listingId, label }: ListingInfoDialogProps) => {
+  const navigate = useNavigate();
+  const [open, setOpen]         = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState<ListingLookup | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [fetched, setFetched]   = useState(false);
+
+  const handleOpenChange = async (next: boolean) => {
+    setOpen(next);
+    if (!next || fetched) return;
+    setLoading(true);
+    setNotFound(false);
+    const found = await lookupListingById(listingId);
+    if (found) {
+      setResult(found);
+      setFetched(true);
+    } else {
+      setNotFound(true);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <button className="font-medium text-[#00A5A7] hover:underline text-xs font-mono">
+          {label}
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-[#34495E]">Listing Details</DialogTitle>
+          <DialogDescription className="font-mono text-xs">Listing #{listingId}</DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="space-y-3 py-2">
+            {[1,2,3].map(i => <div key={i} className="h-5 bg-gray-100 rounded animate-pulse" />)}
+          </div>
+        ) : notFound ? (
+          <p className="text-sm text-[#717182] py-2">No listing found with this ID.</p>
+        ) : result ? (
+          <div className="space-y-3 py-2">
+            {result.listingImages?.[0] ? (
+              <img src={prefixImage(result.listingImages[0])} alt={result.title}
+                className="w-full h-32 object-cover rounded-lg"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            ) : (
+              <div className="w-full h-32 bg-gray-100 rounded-lg flex items-center justify-center">
+                <Home className="w-8 h-8 text-gray-300" />
+              </div>
+            )}
+            <div className="space-y-1.5 text-sm">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-[#34495E] font-medium">{result.title || '—'}</p>
+                <Badge className={`text-xs border-0 ${
+                  result.status === 1 ? 'bg-[#B8E986] text-[#34495E]' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {result.status === 1 ? 'Active' : 'Pending'}
+                </Badge>
+              </div>
+              {(result.address || result.city) && (
+                <p className="text-[#717182] flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5" />
+                  {result.address ? `${result.address}, ` : ''}{result.city}
+                </p>
+              )}
+              {result.pricePerMonth != null && (
+                <p className="text-[#717182]">EGP {result.pricePerMonth.toLocaleString()} / month</p>
+              )}
+              {result.landlordName && (
+                <p className="text-[#717182]">By <span className="text-[#00A5A7]">{result.landlordName}</span></p>
+              )}
+              <p className="text-[#717182] text-xs">Listing ID: #{result.id}</p>
+            </div>
+            <Button size="sm" onClick={() => navigate(`/house/${result.id}`)}
+              className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white w-full">
+              View Listing
+            </Button>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ─── Reported Entity Dialog ───────────────────────────────────────────────────
+// Picks the right lookup based on report.type:
+//  - type === 1 (Listing Report) -> reportedId is a listing ID -> ListingInfoDialog
+//  - otherwise (User Report)     -> reportedId is an account GUID -> UserInfoDialog
+
+interface ReportedEntityDialogProps {
+  report: Report;
+  compact?: boolean; // true = short label for list rows, false = descriptive label
+}
+
+const ReportedEntityDialog = ({ report, compact = true }: ReportedEntityDialogProps) => {
+  if (report.type === 1) {
+    return (
+      <ListingInfoDialog
+        listingId={report.reportedId}
+        label={compact ? `Listing #${report.reportedId}` : 'View listing details →'}
+      />
+    );
+  }
+  return (
+    <UserInfoDialog
+      accountId={report.reportedId}
+      label={compact ? report.reportedId.slice(0, 8) + '…' : 'View reported profile →'}
+    />
+  );
+};
+
 // ─── Report Detail Dialog ─────────────────────────────────────────────────────
 
 interface ReportDetailDialogProps {
@@ -294,12 +476,16 @@ const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
 
           {/* Reported */}
           <div className="space-y-1">
-            <Label className="text-[#34495E] text-xs font-semibold">Reported User</Label>
+            <Label className="text-[#34495E] text-xs font-semibold">
+              {report.type === 1 ? 'Reported Listing' : 'Reported User'}
+            </Label>
             <div className="flex items-center gap-2 p-3 bg-[#FF6F61]/5 border border-[#FF6F61]/20 rounded-lg">
               <Flag className="w-4 h-4 text-[#FF6F61] flex-shrink-0" />
               <div className="min-w-0">
-                <p className="text-xs text-[#717182] font-mono break-all">{report.reportedId}</p>
-                <UserInfoDialog accountId={report.reportedId} label="View reported profile →" />
+                <p className="text-xs text-[#717182] font-mono break-all">
+                  {report.type === 1 ? `Listing ID: ${report.reportedId}` : report.reportedId}
+                </p>
+                <ReportedEntityDialog report={report} compact={false} />
               </div>
             </div>
           </div>
@@ -471,6 +657,12 @@ export const Admin = () => {
   const [loading, setLoading]     = useState(true);
   const [bannedIds, setBannedIds] = useState<Set<string>>(new Set());
 
+  // Banned users dialog (opened from the "Total Bans" stat card)
+  const [bansDialogOpen, setBansDialogOpen]         = useState(false);
+  const [bannedUsersList, setBannedUsersList]       = useState<BannedEntry[]>([]);
+  const [bannedUsersLoading, setBannedUsersLoading] = useState(false);
+  const [unbanningId, setUnbanningId]               = useState<string | null>(null);
+
   const [landlordEmailInput, setLandlordEmailInput] = useState('');
   const [foundLandlord, setFoundLandlord]           = useState<Landlord | null>(null);
   const [landlordSearching, setLandlordSearching]   = useState(false);
@@ -579,6 +771,42 @@ export const Admin = () => {
     } finally { setBookingsLoading(false); }
   };
 
+  // ─── Banned users dialog (Total Bans card) ──────────────────────────────────
+
+  const fetchBannedUsersList = async () => {
+    setBannedUsersLoading(true);
+    try {
+      const data = await api.get<PaginatedBans>('/Ban/GetAllBans?IsActive=true&PageIndex=1&PageSize=500');
+      const activeBans = (data?.data || []).filter(r => r.isActive);
+      const entries: BannedEntry[] = await Promise.all(activeBans.map(async (b): Promise<BannedEntry> => {
+        const found = await lookupUserByAccountId(b.userId);
+        if (found) {
+          return { accountId: b.userId, name: found.name || '—', email: found.email, kind: found.kind, id: found.id };
+        }
+        return { accountId: b.userId, name: 'Unknown account', email: b.userId };
+      }));
+      setBannedUsersList(entries);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load banned users.');
+    } finally {
+      setBannedUsersLoading(false);
+    }
+  };
+
+  const handleBansDialogOpenChange = (next: boolean) => {
+    setBansDialogOpen(next);
+    if (next) fetchBannedUsersList();
+  };
+
+  const handleUnbanFromDialog = async (entry: BannedEntry) => {
+    setUnbanningId(entry.accountId);
+    try {
+      await handleUnban(entry.accountId, entry.name, entry.kind, entry.id);
+    } finally {
+      setUnbanningId(null);
+    }
+  };
+
   const handleLandlordSearch = async () => {
     if (!landlordEmailInput.trim()) return;
     setLandlordSearching(true); setFoundLandlord(null); setLandlordNotFound(false);
@@ -621,18 +849,24 @@ export const Admin = () => {
     } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed.'); }
   };
 
-  const handleUnban = async (accountId: string, name: string, type: 'landlord' | 'student', id: number) => {
+  const handleUnban = async (
+    accountId: string,
+    name: string,
+    type?: 'landlord' | 'student',
+    id?: number,
+  ) => {
     try {
-      await api.put(`/Ban/UnBanUser/${accountId}`, {});
+      await unbanUser(accountId);
       toast.success(`${name} has been unbanned.`);
       setBannedIds(prev => { const n = new Set(prev); n.delete(accountId); return n; });
-      if (type === 'landlord') {
+      if (type === 'landlord' && id != null) {
         setLandlords(prev => prev.map(l => l.id === id ? { ...l, isBanned: false } : l));
         setFoundLandlord(prev => prev?.id === id ? { ...prev, isBanned: false } : prev);
-      } else {
+      } else if (type === 'student' && id != null) {
         setStudents(prev => prev.map(s => s.id === id ? { ...s, isBanned: false } : s));
         setFoundStudent(prev => prev?.id === id ? { ...prev, isBanned: false } : prev);
       }
+      setBannedUsersList(prev => prev.filter(u => u.accountId !== accountId));
     } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed to unban.'); }
   };
 
@@ -724,9 +958,56 @@ export const Admin = () => {
                 <StatCard label="Occupied Beds"    value={stats?.occupiedBeds    ?? '—'}              icon={<Bed        className="w-5 h-5 text-[#FF6F61]" />} />
                 <StatCard label="Pending Listings" value={stats?.pendingListings ?? '—'}              icon={<Flag       className="w-5 h-5 text-orange-400" />} />
                 <StatCard label="Total Reports"    value={stats?.totalReports    ?? reportCount}       icon={<Flag       className="w-5 h-5 text-[#FF6F61]" />}   onClick={() => setActiveTab('reports')} />
-                <StatCard label="Total Bans"       value={stats?.totalBans       ?? bannedIds.size}    icon={<ShieldAlert className="w-5 h-5 text-red-500" />} />
+                <StatCard label="Total Bans"       value={stats?.totalBans       ?? bannedIds.size}    icon={<ShieldAlert className="w-5 h-5 text-red-500" />}  onClick={() => handleBansDialogOpenChange(true)} />
               </div>
             )}
+
+            {/* Banned Users Dialog — opened from the "Total Bans" stat card */}
+            <Dialog open={bansDialogOpen} onOpenChange={handleBansDialogOpenChange}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle className="text-[#34495E] flex items-center gap-2">
+                    <ShieldAlert className="w-5 h-5 text-red-500" />Banned Users
+                  </DialogTitle>
+                  <DialogDescription>All users currently banned from the platform</DialogDescription>
+                </DialogHeader>
+
+                {bannedUsersLoading ? (
+                  <div className="space-y-3 py-2">
+                    {[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />)}
+                  </div>
+                ) : bannedUsersList.length === 0 ? (
+                  <p className="text-sm text-[#717182] text-center py-6">No banned users.</p>
+                ) : (
+                  <div className="space-y-3 py-2 max-h-[60vh] overflow-y-auto">
+                    {bannedUsersList.map(entry => (
+                      <div key={entry.accountId} className="flex items-center justify-between gap-3 p-3 border rounded-lg">
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-[#34495E] truncate">{entry.name}</p>
+                            {entry.kind && (
+                              <Badge className={`border text-xs ${
+                                entry.kind === 'student'
+                                  ? 'bg-[#00A5A7]/10 text-[#00A5A7] border-[#00A5A7]/30'
+                                  : 'bg-[#B8E986]/20 text-[#34495E] border-[#B8E986]/40'
+                              }`}>
+                                {entry.kind === 'student' ? 'Student' : 'Landlord'}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#717182] truncate font-mono">{entry.email}</p>
+                        </div>
+                        <Button variant="outline" size="sm" disabled={unbanningId === entry.accountId}
+                          onClick={() => handleUnbanFromDialog(entry)}
+                          className="border-green-500 text-green-600 hover:bg-green-50 flex-shrink-0">
+                          <ShieldOff className="w-4 h-4 mr-1" />{unbanningId === entry.accountId ? 'Unbanning...' : 'Unban'}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
 
             {stats?.recentListings && stats.recentListings.length > 0 && (
               <Card>
@@ -1077,7 +1358,7 @@ export const Admin = () => {
                           <p className="text-sm text-[#34495E]">{r.reason}</p>
                           <div className="flex gap-4 text-xs text-[#717182]">
                             <span>Reporter: <UserInfoDialog accountId={r.reporterId} label={r.reporterId.slice(0,8) + '…'} /></span>
-                            <span>Reported: <UserInfoDialog accountId={r.reportedId} label={r.reportedId.slice(0,8) + '…'} /></span>
+                            <span>Reported: <ReportedEntityDialog report={r} /></span>
                           </div>
                         </div>
                       );
@@ -1138,7 +1419,7 @@ export const Admin = () => {
                               {/* Reason preview — truncated */}
                               <p className="text-sm text-[#34495E] line-clamp-2">{report.reason}</p>
 
-                              {/* Reporter / Reported — clickable account IDs */}
+                              {/* Reporter / Reported — clickable account IDs (or listing for listing reports) */}
                               <div className="flex flex-wrap gap-3 text-xs text-[#717182]">
                                 <span className="flex items-center gap-1">
                                   Reporter:
@@ -1146,7 +1427,7 @@ export const Admin = () => {
                                 </span>
                                 <span className="flex items-center gap-1">
                                   Reported:
-                                  <UserInfoDialog accountId={report.reportedId} label={report.reportedId.slice(0,8) + '…'} />
+                                  <ReportedEntityDialog report={report} />
                                 </span>
                               </div>
                             </div>
