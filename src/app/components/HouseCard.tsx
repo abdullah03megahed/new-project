@@ -44,6 +44,9 @@ export const HouseCard = ({ house, listing, priceMode = 'min' }: HouseCardProps)
     ? listing.rooms.map((r) => r.pricePerBed).filter((p) => p > 0)
     : [];
 
+  const computedPrice = roomPrices.length > 0
+    ? (priceMode === 'max' ? Math.max(...roomPrices) : Math.min(...roomPrices))
+    : 0;
 
   const priceLabel = roomPrices.length > 0
     ? (priceMode === 'max' ? 'Up to' : 'From')
