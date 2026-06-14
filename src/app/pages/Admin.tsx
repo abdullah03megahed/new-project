@@ -443,6 +443,117 @@ const ReportDetailDialog = ({ report }: ReportDetailDialogProps) => {
   );
 };
 
+// ─── Booking Detail Dialog ────────────────────────────────────────────────────
+
+interface BookingDetailDialogProps { booking: BookingDto; }
+
+const BookingDetailDialog = ({ booking }: BookingDetailDialogProps) => {
+  const navigate = useNavigate();
+  const { label, color } = bookingStatusInfo(booking.status);
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="border-[#B19CD9] text-[#B19CD9] hover:bg-[#B19CD9] hover:text-white">
+          <Eye className="w-4 h-4 mr-1" />View Details
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-[#34495E] flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-[#00A5A7]" />
+            Booking #{booking.id}
+          </DialogTitle>
+          <DialogDescription>Full details for this booking</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          {/* Status + Amount */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <Badge className={`${color} border text-sm px-3 py-1`}>{label}</Badge>
+            {booking.amount != null && (
+              <span className="text-[#FF6F61] font-semibold text-base">
+                EGP {booking.amount.toLocaleString()}
+              </span>
+            )}
+          </div>
+
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 bg-gray-50 rounded-lg border space-y-0.5">
+              <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">Start date</p>
+              <p className="text-sm text-[#34495E] font-medium flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-[#00A5A7]" />{formatDate(booking.startDate)}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg border space-y-0.5">
+              <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">End date</p>
+              <p className="text-sm text-[#34495E] font-medium flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-[#FF6F61]" />{formatDate(booking.endDate)}
+              </p>
+            </div>
+          </div>
+
+          {/* People */}
+          <div className="space-y-2">
+            {booking.studentName && (
+              <div className="flex items-center gap-3 p-3 bg-[#00A5A7]/5 border border-[#00A5A7]/20 rounded-lg">
+                <User className="w-4 h-4 text-[#00A5A7] flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-[#717182] font-semibold">Student</p>
+                  <p className="text-sm text-[#34495E]">{booking.studentName}</p>
+                  {booking.studentId && <p className="text-xs text-[#717182]">ID #{booking.studentId}</p>}
+                </div>
+              </div>
+            )}
+            {booking.landlordName && (
+              <div className="flex items-center gap-3 p-3 bg-[#B8E986]/10 border border-[#B8E986]/40 rounded-lg">
+                <Home className="w-4 h-4 text-[#34495E] flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-[#717182] font-semibold">Landlord</p>
+                  <p className="text-sm text-[#34495E]">{booking.landlordName}</p>
+                  {booking.landlordId && <p className="text-xs text-[#717182]">ID #{booking.landlordId}</p>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Listing & Bed */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 bg-gray-50 rounded-lg border space-y-0.5">
+              <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">Listing</p>
+              <p className="text-sm text-[#34495E] font-medium">
+                {booking.listingTitle || `#${booking.listingId}`}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg border space-y-0.5">
+              <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">Bed</p>
+              <p className="text-sm text-[#34495E] font-medium flex items-center gap-1.5">
+                <Bed className="w-3.5 h-3.5 text-[#717182]" />#{booking.bedId}
+              </p>
+            </div>
+          </div>
+
+          {booking.durationInMonths != null && (
+            <div className="p-3 bg-gray-50 rounded-lg border">
+              <p className="text-xs text-[#717182] font-semibold uppercase tracking-wide">Duration</p>
+              <p className="text-sm text-[#34495E] font-medium">
+                {booking.durationInMonths} month{booking.durationInMonths !== 1 ? 's' : ''}
+              </p>
+            </div>
+          )}
+
+          <Button
+            onClick={() => navigate(`/house/${booking.listingId}`)}
+            className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white w-full"
+          >
+            View Listing
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ─── Ban Dialog ───────────────────────────────────────────────────────────────
 
 interface BanDialogProps { userId: string; userName: string; onBanned: () => void; }
@@ -1254,11 +1365,14 @@ export const Admin = () => {
                           <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{formatDate(booking.startDate)} → {formatDate(booking.endDate)}</span>
                           {booking.durationInMonths != null && <span>{booking.durationInMonths}mo</span>}
                         </div>
-                        <Button variant="outline" size="sm"
-                          onClick={() => navigate(`/house/${booking.listingId}`)}
-                          className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
-                          View Listing
-                        </Button>
+                        <div className="flex gap-2">
+                          <BookingDetailDialog booking={booking} />
+                          <Button variant="outline" size="sm"
+                            onClick={() => navigate(`/house/${booking.listingId}`)}
+                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
+                            View Listing
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
