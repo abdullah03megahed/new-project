@@ -706,6 +706,12 @@ const StatCard = ({ label, value, icon, onClick }: {
 export const Admin = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Compute this instead of returning early — early returns BEFORE hooks are
+  // declared cause React error #300 ("Rendered fewer hooks than expected")
+  // once `user` changes from null -> populated between renders.
+  const isAdmin = !!user && user.type === 'admin';
+
   const [activeTab, setActiveTab] = useState<'overview' | 'landlords' | 'students' | 'reports' | 'bookings'>('overview');
 
   const [stats, setStats]         = useState<DashboardStats | null>(null);
@@ -745,56 +751,12 @@ export const Admin = () => {
   const [bookingStatusFilter, setBookingStatusFilter] = useState<string>('all');
   const [bookingsLoading, setBookingsLoading]         = useState(false);
 
-  if (!user || user.type !== 'admin') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-[#717182]">Access denied. Admins only.</p>
-      </div>
-    );
-  }
-
   const fetchBannedIds = async (): Promise<Set<string>> => {
     try {
       const data = await api.get<PaginatedBans>('/Ban/GetAllBans?IsActive=true&PageIndex=1&PageSize=500');
       return new Set((data?.data || []).filter(r => r.isActive).map(r => r.userId));
     } catch { return new Set(); }
   };
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true);
-      try {
-        const [statsRes, landlordsRes, studentsRes, bansSet] = await Promise.all([
-          api.get<DashboardStats>('/admin/dashboard').catch(() => null),
-          api.get<Landlord[]>('/LandLord').catch(() => [] as Landlord[]),
-          api.get<Student[]>('/Student').catch(() => [] as Student[]),
-          fetchBannedIds(),
-        ]);
-        if (statsRes) setStats(statsRes);
-        setBannedIds(bansSet);
-        setLandlords((landlordsRes || []).map(l => ({ ...l, isBanned: bansSet.has(l.accountId) })));
-        setStudents((studentsRes || []).map(s => ({ ...s, isBanned: bansSet.has(s.accountId) })));
-      } catch { /* silently fail */ }
-      finally { setLoading(false); }
-    };
-    fetchAll();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => {
-    if (activeTab !== 'reports') return;
-    fetchReports();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, reportStatus]);
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => {
-    if (activeTab !== 'bookings') return;
-    fetchBookings();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, bookingStatusFilter]);
 
   const fetchReports = async () => {
     setReportsLoading(true);
@@ -866,6 +828,52 @@ export const Admin = () => {
       setBookingsLoading(false);
     }
   };
+
+  // ── Hooks below ALWAYS run on every render — guard their bodies with
+  // `isAdmin`, never skip the hook call itself. ────────────────────────────
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const fetchAll = async () => {
+      setLoading(true);
+      try {
+        const [statsRes, landlordsRes, studentsRes, bansSet] = await Promise.all([
+          api.get<DashboardStats>('/admin/dashboard').catch(() => null),
+          api.get<Landlord[]>('/LandLord').catch(() => [] as Landlord[]),
+          api.get<Student[]>('/Student').catch(() => [] as Student[]),
+          fetchBannedIds(),
+        ]);
+        if (statsRes) setStats(statsRes);
+        setBannedIds(bansSet);
+        setLandlords((landlordsRes || []).map(l => ({ ...l, isBanned: bansSet.has(l.accountId) })));
+        setStudents((studentsRes || []).map(s => ({ ...s, isBanned: bansSet.has(s.accountId) })));
+      } catch { /* silently fail */ }
+      finally { setLoading(false); }
+    };
+    fetchAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || activeTab !== 'reports') return;
+    fetchReports();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, activeTab, reportStatus]);
+
+  useEffect(() => {
+    if (!isAdmin || activeTab !== 'bookings') return;
+    fetchBookings();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, activeTab, bookingStatusFilter]);
+
+  // ── Access gate — AFTER all hooks are declared ───────────────────────────
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-[#717182]">Access denied. Admins only.</p>
+      </div>
+    );
+  }
 
   // ─── Banned users dialog ──────────────────────────────────────────────────
 
