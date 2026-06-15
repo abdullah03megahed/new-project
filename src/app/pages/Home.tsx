@@ -30,7 +30,7 @@ const GuestBanner = () => {
           🎓 Your Perfect Student Home Might Be Just a Click Away!
         </h3>
         <p className="text-[#717182] mb-1">
-          Unlock full property details, room photos, pricing, amenities, and availability by creating your free account.
+          Unlock full property details, room photos, pricing and availability by creating your free account.
         </p>
         <p className="text-[#34495E] mb-5 font-medium">
           Start your housing journey today — it's completely free.
