@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Search, TrendingUp, Award, SlidersHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, TrendingUp, Award, SlidersHorizontal, ChevronLeft, ChevronRight, Lock, LogIn, UserPlus } from 'lucide-react';
 import { api } from '../utils/api';
 import { HouseCard, Listing } from '../components/HouseCard';
 import { Input } from '../components/ui/input';
@@ -19,6 +19,35 @@ interface PaginatedListings {
   pageIndex: number; pageSize: number;
   count: number; data: Listing[];
 }
+
+// ─── Guest Banner Component ────────────────────────────────────────────────────
+const GuestBanner = () => {
+  const navigate = useNavigate();
+  return (
+    <div className="bg-[#FFC759]/15 border-b border-[#FFC759]/40">
+      <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-[#34495E]">
+          <Lock className="w-5 h-5 text-[#FF6F61] flex-shrink-0" />
+          <p className="text-sm">
+            <span className="font-medium">Log in or sign up</span> to view full house details — it's completely free!
+          </p>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <Button variant="outline" size="sm" onClick={() => navigate('/login')}>
+            <LogIn className="w-4 h-4 mr-1" /> Log In
+          </Button>
+          <Button
+            size="sm"
+            className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white"
+            onClick={() => navigate('/signup')}
+          >
+            <UserPlus className="w-4 h-4 mr-1" /> Sign Up Free
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ─── Carousel Component ────────────────────────────────────────────────────────
 interface CarouselProps {
@@ -135,7 +164,14 @@ export const Home = () => {
   const [featuredListings, setFeaturedListings] = useState<Listing[]>([]);
   const [latestListings, setLatestListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // TODO: replace with your actual auth check (e.g. context/useAuth())
+    const token = localStorage.getItem('token');
+    setIsLoggedIn(!!token);
+  }, []);
 
   useEffect(() => {
     const fetchListings = async () => {
@@ -256,6 +292,9 @@ export const Home = () => {
           </div>
         </div>
       </div>
+
+      {/* ── Guest Banner ── */}
+      {!isLoggedIn && <GuestBanner />}
 
       {/* ── Featured Listings Carousel ── */}
       <div className="container mx-auto px-4 py-12">
