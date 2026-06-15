@@ -265,14 +265,16 @@ export const HouseDetail = () => {
       return;
     }
 
+    const months = Number(durationMonths);
+
     setBookingLoading(true);
     try {
       if (bookingMode === 'bed') {
         // ── Single bed booking ─────────────────────────────────────────────
         const res = await api.post<any>('/Booking/CreateBooking', {
           bedId: selectedBedId,
-          roomId: 0 ,
-          durationInMonths: Number(durationMonths),
+          roomId: 0,
+          durationInMonths: months,
           type: 1,
         });
 
@@ -284,16 +286,21 @@ export const HouseDetail = () => {
           return;
         }
 
-        const totalPrice = listing?.rooms
+        const pricePerBed = listing?.rooms
           .flatMap(r => r.beds.map(b => ({ id: b.id, price: r.pricePerBed })))
           .find(b => b.id === selectedBedId)?.price;
 
+        // ✅ FIX: pass total with duration × 10% fee, matching the sidebar display
+        const totalWithFees = pricePerBed
+          ? Math.round(pricePerBed * months * 1.1)
+          : undefined;
+
         setPendingBookingId(bookingId);
-        setPendingAmount(totalPrice);
+        setPendingAmount(totalWithFees);
         setPaymentOpen(true);
 
       } else {
-        // ── Whole room booking — single POST ──────────────────────────────
+        // ── Whole room booking ────────────────────────────────────────────
         const room = listing?.rooms.find(r => r.id === selectedRoomId);
         if (!room) { toast.error('Room not found.'); return; }
 
@@ -305,7 +312,7 @@ export const HouseDetail = () => {
 
         const res = await api.post<any>('/Booking/CreateBooking', {
           roomId: selectedRoomId,
-          durationInMonths: Number(durationMonths),
+          durationInMonths: months,
           type: 2,
         });
 
@@ -317,9 +324,13 @@ export const HouseDetail = () => {
           return;
         }
 
-        const totalPrice = room.pricePerBed * availableRoomBeds.length;
+        const roomBasePrice = room.pricePerBed * availableRoomBeds.length;
+
+        // ✅ FIX: pass total with duration × 10% fee, matching the sidebar display
+        const totalWithFees = Math.round(roomBasePrice * months * 1.1);
+
         setPendingBookingId(bookingId);
-        setPendingAmount(totalPrice);
+        setPendingAmount(totalWithFees);
         setPaymentOpen(true);
       }
     } catch (err: unknown) {
