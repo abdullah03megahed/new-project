@@ -34,7 +34,7 @@ interface Plan {
 
 const PLANS: Plan[] = [
   {
-    id: 4,
+    id: 1,
     name: 'Freemium',
     price: 0,
     durationInDays: null,
@@ -45,7 +45,7 @@ const PLANS: Plan[] = [
     color: '#717182',
   },
   {
-    id: 8,
+    id: 2,
     name: 'Basic',
     price: 150,
     durationInDays: 30,
@@ -57,7 +57,7 @@ const PLANS: Plan[] = [
     popular: true,
   },
   {
-    id: 11,
+    id: 3,
     name: 'Professional',
     price: 500,
     durationInDays: 90,
