@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router';
+import { useSearchParams, useNavigate } from 'react-router';
 import { api } from '../utils/api';
 import { HouseCard } from '../components/HouseCard';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Search, Sparkles } from 'lucide-react';
+import { Search, Sparkles, LogIn, UserPlus } from 'lucide-react';
 
 interface Bed { id: number; isBooked: boolean; }
 interface Room {
@@ -37,9 +37,61 @@ export interface MatchedListing extends Listing {
   isFullyRented: boolean;
   overallScore: number;
   compatibilityLabel: string;
-  pricePerBed: number; // ✅ Added from API response
+  pricePerBed: number;
 }
 
+// ─── Helper: decode role from JWT stored in localStorage ──────────────────────
+// Adjust the key names to match whatever your API actually puts in the token.
+// Common claim names: "role", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"
+function getUserRole(): string | null {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return null;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    // Try the two most common claim names; fall back to a plain "role" key
+    return (
+      payload['role'] ||
+      payload['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'] ||
+      payload['Role'] ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+// ─── Guest Banner (same style as Home page) ───────────────────────────────────
+const GuestBanner = () => {
+  const navigate = useNavigate();
+  return (
+    <div className="mb-8">
+      <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-xl border border-[#FFC759]/40 p-6 md:p-8 text-center">
+        <h3 className="text-[#34495E] mb-2" style={{ fontSize: '22px', fontWeight: '700' }}>
+          🎓 Your Perfect Student Home Might Be Just a Click Away!
+        </h3>
+        <p className="text-[#717182] mb-1">
+          Unlock full property details, room photos, pricing and availability by creating your free account.
+        </p>
+        <p className="text-[#34495E] mb-5 font-medium">
+          Start your housing journey today — it's completely free.
+        </p>
+        <div className="flex flex-col sm:flex-row justify-center gap-3">
+          <Button variant="outline" onClick={() => navigate('/login')} className="h-11 px-6">
+            <LogIn className="w-4 h-4 mr-2" /> Log In
+          </Button>
+          <Button
+            onClick={() => navigate('/signup')}
+            className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6"
+          >
+            <UserPlus className="w-4 h-4 mr-2" /> Sign Up Free
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Houses Page ──────────────────────────────────────────────────────────────
 export const Houses = () => {
   const [searchParams] = useSearchParams();
   const [city, setCity] = useState(searchParams.get('search') || '');
@@ -51,11 +103,36 @@ export const Houses = () => {
   const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
 
+  // Auth / role state
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showFindMatch, setShowFindMatch] = useState(false);
+
   // Roommate matching state
   const [matchMode, setMatchMode] = useState(false);
   const [matchedListings, setMatchedListings] = useState<MatchedListing[]>([]);
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState(false);
+
+  // Determine auth state and role on mount
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const loggedIn = !!token;
+    setIsLoggedIn(loggedIn);
+
+    if (loggedIn) {
+      const role = getUserRole();
+      // Show "Find A Match" only for regular users (students/tenants).
+      // Hide it for admins and landlords.
+      const isAdminOrLandlord =
+        role === 'Admin' ||
+        role === 'admin' ||
+        role === 'Landlord' ||
+        role === 'landlord';
+      setShowFindMatch(!isAdminOrLandlord);
+    } else {
+      setShowFindMatch(false);
+    }
+  }, []);
 
   const fetchListings = async (
     page = 1,
@@ -221,10 +298,13 @@ export const Houses = () => {
               <Search className="w-4 h-4 mr-2" />Search
             </Button>
 
-            <Button onClick={handleFindMatch} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6">
-              <Sparkles className="w-4 h-4 mr-2" />
-              {matchMode ? 'Back to Search' : 'Find A Match'}
-            </Button>
+            {/* Only shown for regular (student/tenant) users */}
+            {showFindMatch && (
+              <Button onClick={handleFindMatch} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6">
+                <Sparkles className="w-4 h-4 mr-2" />
+                {matchMode ? 'Back to Search' : 'Find A Match'}
+              </Button>
+            )}
 
             {hasFilters && (
               <Button variant="ghost" onClick={handleReset} className="h-11 text-[#717182] hover:text-[#34495E]">
@@ -251,6 +331,9 @@ export const Houses = () => {
             </div>
           )}
         </div>
+
+        {/* Guest Banner — shown only to non-logged-in visitors */}
+        {!isLoggedIn && <GuestBanner />}
 
         {/* Results count */}
         <div className="mb-6 flex items-center justify-between">
@@ -296,7 +379,7 @@ export const Houses = () => {
                     {listing.overallScore}% · {listing.compatibilityLabel}
                   </div>
 
-                  {/* ✅ Price overlay at the bottom of the card */}
+                  {/* Price overlay at the bottom of the card */}
                   <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1">
                     {listing.pricePerMonth > 0 && (
                       <span className="bg-white/90 backdrop-blur-sm text-[#34495E] text-xs font-semibold px-2.5 py-1 rounded-full shadow-sm border border-gray-100">
