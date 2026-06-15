@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Search, TrendingUp, Award, SlidersHorizontal, ChevronLeft, ChevronRight, Lock, LogIn, UserPlus } from 'lucide-react';
+import { Search, TrendingUp, Award, SlidersHorizontal, ChevronLeft, ChevronRight, LogIn, UserPlus } from 'lucide-react';
 import { api } from '../utils/api';
 import { HouseCard, Listing } from '../components/HouseCard';
 import { Input } from '../components/ui/input';
@@ -24,24 +24,26 @@ interface PaginatedListings {
 const GuestBanner = () => {
   const navigate = useNavigate();
   return (
-    <div className="bg-[#FFC759]/15 border-b border-[#FFC759]/40">
-      <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-[#34495E]">
-          <Lock className="w-5 h-5 text-[#FF6F61] flex-shrink-0" />
-          <p className="text-sm">
-            <span className="font-medium">Log in or sign up</span> to view full house details — it's completely free!
-          </p>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={() => navigate('/login')}>
-            <LogIn className="w-4 h-4 mr-1" /> Log In
+    <div className="container mx-auto px-4 -mt-10 relative z-20">
+      <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-xl border border-[#FFC759]/40 p-6 md:p-8 text-center">
+        <h3 className="text-[#34495E] mb-2" style={{ fontSize: '22px', fontWeight: '700' }}>
+          🎓 Your Perfect Student Home Might Be Just a Click Away!
+        </h3>
+        <p className="text-[#717182] mb-1">
+          Unlock full property details, room photos, pricing, amenities, and availability by creating your free account.
+        </p>
+        <p className="text-[#34495E] mb-5 font-medium">
+          Start your housing journey today — it's completely free.
+        </p>
+        <div className="flex flex-col sm:flex-row justify-center gap-3">
+          <Button variant="outline" onClick={() => navigate('/login')} className="h-11 px-6">
+            <LogIn className="w-4 h-4 mr-2" /> Log In
           </Button>
           <Button
-            size="sm"
-            className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white"
             onClick={() => navigate('/signup')}
+            className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6"
           >
-            <UserPlus className="w-4 h-4 mr-1" /> Sign Up Free
+            <UserPlus className="w-4 h-4 mr-2" /> Sign Up Free
           </Button>
         </div>
       </div>
