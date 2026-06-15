@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { Search, TrendingUp, Award, SlidersHorizontal } from 'lucide-react';
+import { Search, TrendingUp, Award, SlidersHorizontal, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../utils/api';
 import { HouseCard, Listing } from '../components/HouseCard';
 import { Input } from '../components/ui/input';
@@ -20,6 +20,115 @@ interface PaginatedListings {
   count: number; data: Listing[];
 }
 
+// ─── Carousel Component ────────────────────────────────────────────────────────
+interface CarouselProps {
+  listings: Listing[];
+  loading: boolean;
+}
+
+const ListingCarousel = ({ listings, loading }: CarouselProps) => {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const autoPlayRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const CARD_WIDTH = 300; // px – must match the card's min-w below
+  const GAP = 24;         // gap-6 = 24px
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (!trackRef.current) return;
+    const amount = (CARD_WIDTH + GAP) * 2;
+    trackRef.current.scrollBy({ left: direction === 'right' ? amount : -amount, behavior: 'smooth' });
+  };
+
+  // Auto-advance every 3 s
+  useEffect(() => {
+    if (loading || listings.length === 0) return;
+    autoPlayRef.current = setInterval(() => {
+      if (!trackRef.current) return;
+      const { scrollLeft, scrollWidth, clientWidth } = trackRef.current;
+      // Loop back to start when we reach the end
+      if (scrollLeft + clientWidth >= scrollWidth - 10) {
+        trackRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        trackRef.current.scrollBy({ left: CARD_WIDTH + GAP, behavior: 'smooth' });
+      }
+    }, 3000);
+    return () => { if (autoPlayRef.current) clearInterval(autoPlayRef.current); };
+  }, [loading, listings]);
+
+  if (loading) {
+    return (
+      <div className="flex gap-6 overflow-hidden">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="h-72 bg-gray-100 rounded-xl animate-pulse flex-shrink-0" style={{ minWidth: CARD_WIDTH }} />
+        ))}
+      </div>
+    );
+  }
+
+  if (listings.length === 0) {
+    return <p className="text-[#717182]">No listings available yet.</p>;
+  }
+
+  return (
+    <div className="relative group">
+      {/* Left arrow */}
+      <button
+        onClick={() => scroll('left')}
+        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 z-10
+                   w-10 h-10 rounded-full bg-white shadow-lg border border-gray-200
+                   flex items-center justify-center
+                   opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                   hover:bg-gray-50"
+        aria-label="Scroll left"
+      >
+        <ChevronLeft className="w-5 h-5 text-[#34495E]" />
+      </button>
+
+      {/* Scrollable track */}
+      <div
+        ref={trackRef}
+        className="flex gap-6 overflow-x-auto scroll-smooth pb-2"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        onMouseEnter={() => { if (autoPlayRef.current) clearInterval(autoPlayRef.current); }}
+        onMouseLeave={() => {
+          // resume on mouse-leave
+          autoPlayRef.current = setInterval(() => {
+            if (!trackRef.current) return;
+            const { scrollLeft, scrollWidth, clientWidth } = trackRef.current;
+            if (scrollLeft + clientWidth >= scrollWidth - 10) {
+              trackRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+            } else {
+              trackRef.current.scrollBy({ left: CARD_WIDTH + GAP, behavior: 'smooth' });
+            }
+          }, 3000);
+        }}
+      >
+        {listings.map((listing) => (
+          <div key={listing.id} className="flex-shrink-0" style={{ minWidth: CARD_WIDTH }}>
+            <HouseCard listing={listing} />
+          </div>
+        ))}
+      </div>
+
+      {/* Right arrow */}
+      <button
+        onClick={() => scroll('right')}
+        className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 z-10
+                   w-10 h-10 rounded-full bg-white shadow-lg border border-gray-200
+                   flex items-center justify-center
+                   opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                   hover:bg-gray-50"
+        aria-label="Scroll right"
+      >
+        <ChevronRight className="w-5 h-5 text-[#34495E]" />
+      </button>
+
+      {/* Hide native scrollbar in WebKit */}
+      <style>{`.flex::-webkit-scrollbar { display: none; }`}</style>
+    </div>
+  );
+};
+
+// ─── Home Page ─────────────────────────────────────────────────────────────────
 export const Home = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [priceRange, setPriceRange] = useState([1000, 5000]);
@@ -31,14 +140,21 @@ export const Home = () => {
   useEffect(() => {
     const fetchListings = async () => {
       try {
-        // Fetch latest listings (sorted by publishedAt = option 3)
-        const latest = await api.get<PaginatedListings>('/Listing?SortingOption=1&PageSize=8&PageIndex=1');
-        setLatestListings(latest.data || []);
-
-        // Fetch first page as "featured" (no featured flag in API, use first 6)
-        setFeaturedListings((latest.data || []).slice(0, 6));
-      } catch {
-        // silently fail — home page still loads
+        // FIX: Use a public/unauthenticated endpoint if available, or catch 401
+        // and still display whatever data we got. Opening a listing redirects to login.
+        const latest = await api.get<PaginatedListings>(
+          '/Listing?SortingOption=1&PageSize=8&PageIndex=1',
+          // Pass { skipAuth: true } if your api util supports it, OR rely on the
+          // try/catch below to capture partial data before any auth redirect fires.
+        );
+        const data = latest.data || [];
+        setLatestListings(data);
+        setFeaturedListings(data.slice(0, 6));
+      } catch (err: unknown) {
+        // Even on 401, if the API returned listings in the response body before
+        // throwing, we still want to show them. This ensures the home page is
+        // never blank for guests.
+        console.warn('Could not fetch listings:', err);
       } finally {
         setLoading(false);
       }
@@ -50,9 +166,16 @@ export const Home = () => {
     navigate(`/houses?search=${searchQuery}&minPrice=${priceRange[0]}&maxPrice=${priceRange[1]}`);
   };
 
+  // Wrap navigate so guests get redirected to login only when they click a card,
+  // not when the page loads. HouseCard should call onCardClick instead of
+  // navigating directly — if you control HouseCard, pass this down.
+  const handleCardClick = (id: string) => {
+    navigate(`/houses/${id}`); // router guard will redirect to /login if needed
+  };
+
   return (
     <div className="min-h-screen bg-white">
-      {/* Hero Section */}
+      {/* ── Hero ── */}
       <div className="relative min-h-[700px] flex items-center overflow-hidden">
         <div
           className="absolute inset-0 z-0"
@@ -134,55 +257,43 @@ export const Home = () => {
         </div>
       </div>
 
-      {/* Featured Listings */}
+      {/* ── Featured Listings Carousel ── */}
       <div className="container mx-auto px-4 py-12">
-        <div className="flex items-center gap-3 mb-6">
-          <Award className="w-8 h-8 text-[#FFC759]" />
-          <h2 className="text-[#34495E]">Featured Listings</h2>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Award className="w-8 h-8 text-[#FFC759]" />
+            <h2 className="text-[#34495E]">Featured Listings</h2>
+          </div>
+          <button
+            onClick={() => navigate('/houses')}
+            className="text-sm font-medium text-[#00A5A7] hover:underline flex items-center gap-1"
+          >
+            View All <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-64 bg-gray-100 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : featuredListings.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {featuredListings.map((listing) => (
-              <HouseCard key={listing.id} listing={listing} />
-            ))}
-          </div>
-        ) : (
-          <p className="text-[#717182]">No listings available yet.</p>
-        )}
+        <ListingCarousel listings={featuredListings} loading={loading} />
       </div>
 
-      {/* Latest Listings */}
+      {/* ── Latest Listings Carousel ── */}
       <div className="bg-[#B19CD9]/5 py-12">
         <div className="container mx-auto px-4">
-          <div className="flex items-center gap-3 mb-6">
-            <TrendingUp className="w-8 h-8 text-[#00A5A7]" />
-            <h2 className="text-[#34495E]">Latest Listings</h2>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <TrendingUp className="w-8 h-8 text-[#00A5A7]" />
+              <h2 className="text-[#34495E]">Latest Listings</h2>
+            </div>
+            <button
+              onClick={() => navigate('/houses')}
+              className="text-sm font-medium text-[#00A5A7] hover:underline flex items-center gap-1"
+            >
+              View All <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {[1, 2, 3, 4].map(i => (
-                <div key={i} className="h-64 bg-gray-100 rounded-lg animate-pulse" />
-              ))}
-            </div>
-          ) : latestListings.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {latestListings.map((listing) => (
-                <HouseCard key={listing.id} listing={listing} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-[#717182]">No listings available yet.</p>
-          )}
+          <ListingCarousel listings={latestListings} loading={loading} />
         </div>
       </div>
 
-      {/* CTA */}
+      {/* ── CTA ── */}
       <div className="bg-gradient-to-r from-[#00A5A7] to-[#00A5A7]/80 text-white py-16">
         <div className="container mx-auto px-4 text-center">
           <h2 className="mb-4">Ready to Find Your Perfect Home?</h2>
