@@ -32,7 +32,6 @@ interface PaginatedListings {
   count: number; data: Listing[];
 }
 
-// Result shape returned by /api/Matching/roommate
 export interface MatchedListing extends Listing {
   isFullyRented: boolean;
   overallScore: number;
@@ -41,14 +40,16 @@ export interface MatchedListing extends Listing {
 }
 
 // ─── Helper: decode role from JWT stored in localStorage ──────────────────────
-// Adjust the key names to match whatever your API actually puts in the token.
-// Common claim names: "role", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"
 function getUserRole(): string | null {
+  // 1. Check explicit role key first (most reliable)
+  const explicitRole = localStorage.getItem('role');
+  if (explicitRole) return explicitRole;
+
+  // 2. Fallback: decode JWT payload
   try {
     const token = localStorage.getItem('token');
     if (!token) return null;
     const payload = JSON.parse(atob(token.split('.')[1]));
-    // Try the two most common claim names; fall back to a plain "role" key
     return (
       payload['role'] ||
       payload['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'] ||
@@ -113,7 +114,7 @@ export const Houses = () => {
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState(false);
 
-  // Determine auth state and role on mount
+  // ── Determine auth state and role on mount ────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem('token');
     const loggedIn = !!token;
@@ -121,14 +122,10 @@ export const Houses = () => {
 
     if (loggedIn) {
       const role = getUserRole();
-      // Show "Find A Match" only for regular users (students/tenants).
-      // Hide it for admins and landlords.
-      const isAdminOrLandlord =
-        role === 'Admin' ||
-        role === 'admin' ||
-        role === 'Landlord' ||
-        role === 'landlord';
-      setShowFindMatch(!isAdminOrLandlord);
+      // "Find A Match" is ONLY for students — any other role (Admin, Landlord,
+      // unknown) will NOT see the button.
+      const isStudent = role?.toLowerCase() === 'student';
+      setShowFindMatch(isStudent);
     } else {
       setShowFindMatch(false);
     }
@@ -235,7 +232,7 @@ export const Houses = () => {
     <div className="min-h-screen bg-[#B19CD9]/5">
       <div className="container mx-auto px-4 py-8">
 
-        {/* Search & Filter Bar */}
+        {/* ── Search & Filter Bar ─────────────────────────────────────────── */}
         <div className="bg-white rounded-lg shadow-md p-4 mb-8">
           <div className="flex gap-3 flex-wrap items-end">
 
@@ -294,20 +291,30 @@ export const Houses = () => {
               </Select>
             </div>
 
-            <Button onClick={handleSearch} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6">
+            <Button
+              onClick={handleSearch}
+              className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6"
+            >
               <Search className="w-4 h-4 mr-2" />Search
             </Button>
 
-            {/* Only shown for regular (student/tenant) users */}
+            {/* Only shown for students */}
             {showFindMatch && (
-              <Button onClick={handleFindMatch} className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6">
+              <Button
+                onClick={handleFindMatch}
+                className="bg-[#00A5A7] hover:bg-[#00A5A7]/90 text-white h-11 px-6"
+              >
                 <Sparkles className="w-4 h-4 mr-2" />
                 {matchMode ? 'Back to Search' : 'Find A Match'}
               </Button>
             )}
 
             {hasFilters && (
-              <Button variant="ghost" onClick={handleReset} className="h-11 text-[#717182] hover:text-[#34495E]">
+              <Button
+                variant="ghost"
+                onClick={handleReset}
+                className="h-11 text-[#717182] hover:text-[#34495E]"
+              >
                 Reset
               </Button>
             )}
@@ -319,33 +326,58 @@ export const Houses = () => {
               {city.trim() && (
                 <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#00A5A7]/10 text-[#00A5A7] rounded-full text-sm">
                   City: {city}
-                  <button onClick={() => { exitMatchMode(); setCity(''); fetchListings(1, '', genderPreference, sortingOption); }} className="ml-1 hover:text-[#FF6F61]">×</button>
+                  <button
+                    onClick={() => {
+                      exitMatchMode();
+                      setCity('');
+                      fetchListings(1, '', genderPreference, sortingOption);
+                    }}
+                    className="ml-1 hover:text-[#FF6F61]"
+                  >×</button>
                 </span>
               )}
               {genderPreference !== 'all' && (
                 <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#B19CD9]/20 text-[#34495E] rounded-full text-sm">
                   {genderPreference === '1' ? 'Male Only' : 'Female Only'}
-                  <button onClick={() => { exitMatchMode(); setGenderPreference('all'); }} className="ml-1 hover:text-[#FF6F61]">×</button>
+                  <button
+                    onClick={() => {
+                      exitMatchMode();
+                      setGenderPreference('all');
+                    }}
+                    className="ml-1 hover:text-[#FF6F61]"
+                  >×</button>
                 </span>
               )}
             </div>
           )}
         </div>
 
-        {/* Guest Banner — shown only to non-logged-in visitors */}
+        {/* ── Guest Banner — non-logged-in visitors only ──────────────────── */}
         {!isLoggedIn && <GuestBanner />}
 
-        {/* Results count */}
+        {/* ── Results count ───────────────────────────────────────────────── */}
         <div className="mb-6 flex items-center justify-between">
           <p className="text-[#717182]">
             {matchMode ? (
-              matchLoading ? 'Finding your best matches...' : (
-                <>Found <span className="text-[#00A5A7] font-medium">{matchedListings.length}</span> {matchedListings.length === 1 ? 'compatible roommate' : 'compatible roommates'}</>
-              )
+              matchLoading
+                ? 'Finding your best matches...'
+                : (
+                  <>
+                    Found{' '}
+                    <span className="text-[#00A5A7] font-medium">{matchedListings.length}</span>{' '}
+                    {matchedListings.length === 1 ? 'compatible roommate' : 'compatible roommates'}
+                  </>
+                )
             ) : (
-              loading ? 'Searching...' : (
-                <>Found <span className="text-[#00A5A7] font-medium">{totalCount}</span> {totalCount === 1 ? 'property' : 'properties'}</>
-              )
+              loading
+                ? 'Searching...'
+                : (
+                  <>
+                    Found{' '}
+                    <span className="text-[#00A5A7] font-medium">{totalCount}</span>{' '}
+                    {totalCount === 1 ? 'property' : 'properties'}
+                  </>
+                )
             )}
           </p>
           {!matchMode && totalPages > 1 && (
@@ -353,7 +385,7 @@ export const Houses = () => {
           )}
         </div>
 
-        {/* Listings Grid */}
+        {/* ── Listings Grid ───────────────────────────────────────────────── */}
         {matchMode ? (
           matchLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -364,7 +396,11 @@ export const Houses = () => {
           ) : matchError ? (
             <div className="text-center py-16 space-y-3">
               <p className="text-[#717182] text-lg">Something went wrong while finding your matches</p>
-              <Button variant="outline" onClick={handleFindMatch} className="border-[#00A5A7] text-[#00A5A7]">
+              <Button
+                variant="outline"
+                onClick={handleFindMatch}
+                className="border-[#00A5A7] text-[#00A5A7]"
+              >
                 Try again
               </Button>
             </div>
@@ -379,7 +415,7 @@ export const Houses = () => {
                     {listing.overallScore}% · {listing.compatibilityLabel}
                   </div>
 
-                  {/* Price overlay at the bottom of the card */}
+                  {/* Price overlay */}
                   <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1">
                     {listing.pricePerMonth > 0 && (
                       <span className="bg-white/90 backdrop-blur-sm text-[#34495E] text-xs font-semibold px-2.5 py-1 rounded-full shadow-sm border border-gray-100">
@@ -398,7 +434,9 @@ export const Houses = () => {
           ) : (
             <div className="text-center py-16 space-y-3">
               <p className="text-[#717182] text-lg">No roommate matches found yet</p>
-              <p className="text-[#717182] text-sm">Try completing your roommate preferences to get matches</p>
+              <p className="text-[#717182] text-sm">
+                Try completing your roommate preferences to get matches
+              </p>
             </div>
           )
         ) : loading ? (
@@ -417,13 +455,21 @@ export const Houses = () => {
 
             {totalPages > 1 && (
               <div className="flex justify-center items-center gap-2 mt-10">
-                <Button variant="outline" disabled={pageIndex === 1} onClick={() => fetchListings(pageIndex - 1)}>
+                <Button
+                  variant="outline"
+                  disabled={pageIndex === 1}
+                  onClick={() => fetchListings(pageIndex - 1)}
+                >
                   Previous
                 </Button>
                 <span className="px-4 text-[#717182] text-sm">
                   Page {pageIndex} of {totalPages}
                 </span>
-                <Button variant="outline" disabled={pageIndex === totalPages} onClick={() => fetchListings(pageIndex + 1)}>
+                <Button
+                  variant="outline"
+                  disabled={pageIndex === totalPages}
+                  onClick={() => fetchListings(pageIndex + 1)}
+                >
                   Next
                 </Button>
               </div>
@@ -433,7 +479,11 @@ export const Houses = () => {
           <div className="text-center py-16 space-y-3">
             <p className="text-[#717182] text-lg">No properties found matching your criteria</p>
             {hasFilters && (
-              <Button variant="outline" onClick={handleReset} className="border-[#00A5A7] text-[#00A5A7]">
+              <Button
+                variant="outline"
+                onClick={handleReset}
+                className="border-[#00A5A7] text-[#00A5A7]"
+              >
                 Clear filters
               </Button>
             )}
