@@ -1,6 +1,6 @@
 import type { MouseEvent } from 'react';
 import { Link } from 'react-router';
-import { MapPin, Bed, Bath, Star, Phone, MessageCircle } from 'lucide-react';
+import { MapPin, Bed, Bath, Star, Phone, MessageCircle, Venus, Mars } from 'lucide-react';
 import { House } from '../utils/mockData';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
@@ -15,7 +15,8 @@ interface ListingCard {
   listingImages: string[];
   numberOfRooms: number;
   pricePerMonth: number;
-  pricePerBed?: number; // ✅ Added
+  pricePerBed?: number;
+  genderPreference?: number; // 0 = Any, 1 = Male Only, 2 = Female Only
   rooms: {
     pricePerBed: number;
     beds: { isBooked: boolean }[];
@@ -34,12 +35,32 @@ const listingImageUrl = (image?: string) => {
   return image.startsWith('http') ? image : `${IMAGE_BASE}${image}`;
 };
 
+const GenderBadge = ({ preference }: { preference?: number }) => {
+  if (!preference || preference === 0) return null;
+
+  const isMale = preference === 1;
+  return (
+    <div
+      className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold shadow-sm
+        ${isMale
+          ? 'bg-blue-100 text-blue-700 border border-blue-200'
+          : 'bg-pink-100 text-pink-600 border border-pink-200'
+        }`}
+    >
+      {isMale
+        ? <Mars className="w-3 h-3" />
+        : <Venus className="w-3 h-3" />
+      }
+      {isMale ? 'Males Only' : 'Females Only'}
+    </div>
+  );
+};
+
 export const HouseCard = ({ house, listing }: HouseCardProps) => {
   const availableBeds = listing
     ? listing.rooms.flatMap((room) => room.beds).filter((bed) => !bed.isBooked).length
     : 0;
 
-  // ✅ Derive pricePerBed from top-level field OR fallback to first room's pricePerBed
   const resolvedPricePerBed = listing
     ? (listing.pricePerBed ?? listing.rooms?.[0]?.pricePerBed ?? 0)
     : 0;
@@ -58,12 +79,13 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
         secondMetric: String(house.bathrooms),
         thirdMetric: `${house.size}m2`,
         phoneNumber: '+201234567890',
+        genderPreference: undefined as number | undefined,
       }
     : {
         id: listing.id,
         title: listing.title,
         price: listing.pricePerMonth ?? 0,
-        pricePerBed: resolvedPricePerBed > 0 ? resolvedPricePerBed : null, // ✅
+        pricePerBed: resolvedPricePerBed > 0 ? resolvedPricePerBed : null,
         location: `${listing.address}, ${listing.city}`,
         coverImage: listingImageUrl(listing.listingImages[0]),
         badge: listing.furnished ? 'Furnished' : null,
@@ -72,6 +94,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
         secondMetric: `${availableBeds} beds`,
         thirdMetric: listing.city,
         phoneNumber: listing.landlordPhoneNumber,
+        genderPreference: listing.genderPreference,
       };
 
   const handleCall = (e: MouseEvent) => {
@@ -98,11 +121,17 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
             alt={card.title}
             className="w-full h-full object-cover"
           />
+
+          {/* Gender preference badge — top left */}
+          <GenderBadge preference={card.genderPreference} />
+
+          {/* Furnished / Featured badge — top right */}
           {card.badge && (
             <Badge className="absolute top-2 right-2 bg-[#FFC759] text-[#34495E] border-0 text-xs">
               {card.badge}
             </Badge>
           )}
+
           {card.rating !== null && (
             <div className="absolute bottom-2 left-2">
               <div className="bg-white/95 backdrop-blur-sm px-2 py-1 rounded-full flex items-center gap-1">
@@ -133,7 +162,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
             <span className="text-[#717182]">{card.thirdMetric}</span>
           </div>
 
-          {/* ✅ Price section: shows both pricePerMonth and pricePerBed when available */}
+          {/* Price section */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex flex-col gap-0.5">
               {card.price > 0 ? (
@@ -144,7 +173,6 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
                   <span className="text-[#717182] text-sm">/month</span>
                 </div>
               ) : card.pricePerBed ? (
-                // ✅ If pricePerMonth is 0 but pricePerBed exists, show pricePerBed as primary
                 <div>
                   <span className="text-[#FF6F61]" style={{ fontSize: '18px', fontWeight: '600' }}>
                     EGP {card.pricePerBed.toLocaleString()}
@@ -160,7 +188,7 @@ export const HouseCard = ({ house, listing }: HouseCardProps) => {
                 </div>
               )}
 
-              {/* ✅ Show pricePerBed as secondary line only when pricePerMonth is also present */}
+              {/* Secondary per-bed price when monthly price is also shown */}
               {card.price > 0 && card.pricePerBed && (
                 <div>
                   <span className="text-[#717182] text-xs font-medium">
