@@ -159,8 +159,7 @@ export const Matching = () => {
       sleepingHabits:     SLEEP_MAP[formData.sleepingHabits] || 1,
       minBudget:          Number(formData.minBudget),
       maxBudget:          Number(formData.maxBudget),
-      nationalCard:       null,
-      universityCard:     formData.universityCard || '',
+
       bio:                formData.bio || '',
     };
 
