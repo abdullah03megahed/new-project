@@ -750,6 +750,9 @@ export const Admin = () => {
   const [bookingCount, setBookingCount]               = useState(0);
   const [bookingStatusFilter, setBookingStatusFilter] = useState<string>('all');
   const [bookingsLoading, setBookingsLoading]         = useState(false);
+  const [bookingPageIndex, setBookingPageIndex]       = useState(1);
+  const [loadingMoreBookings, setLoadingMoreBookings] = useState(false);
+  const BOOKING_PAGE_SIZE = 10;
 
   const fetchBannedIds = async (): Promise<Set<string>> => {
     try {
@@ -773,13 +776,18 @@ export const Admin = () => {
     finally { setReportsLoading(false); }
   };
 
-  const fetchBookings = async () => {
-    setBookingsLoading(true);
+  // ── Bookings: paginated fetch. Pass append=true to add a page to the
+  // existing list (used by "Show More"); pass append=false (default) to
+  // replace the list from scratch (used on tab open / filter change). ──────
+  const fetchBookings = async (pageIndex: number = 1, append: boolean = false) => {
+    if (append) setLoadingMoreBookings(true);
+    else setBookingsLoading(true);
+
     try {
       const params = new URLSearchParams();
       if (bookingStatusFilter !== 'all') params.append('status', bookingStatusFilter);
-      params.append('PageIndex', '1');
-      params.append('PageSize', '100');
+      params.append('PageIndex', String(pageIndex));
+      params.append('PageSize', String(BOOKING_PAGE_SIZE));
 
       const data = await api.get<any>(`/Booking/GetAllBookings?${params}`);
       const rawList: RawBookingListItem[] = Array.isArray(data) ? data : (data?.data || []);
@@ -820,13 +828,19 @@ export const Admin = () => {
         })
       );
 
-      setBookings(detailed);
+      setBookings(prev => (append ? [...prev, ...detailed] : detailed));
       setBookingCount(totalCount);
+      setBookingPageIndex(pageIndex);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load bookings.');
     } finally {
       setBookingsLoading(false);
+      setLoadingMoreBookings(false);
     }
+  };
+
+  const handleShowMoreBookings = () => {
+    fetchBookings(bookingPageIndex + 1, true);
   };
 
   // ── Hooks below ALWAYS run on every render — guard their bodies with
@@ -862,7 +876,7 @@ export const Admin = () => {
 
   useEffect(() => {
     if (!isAdmin || activeTab !== 'bookings') return;
-    fetchBookings();
+    fetchBookings(1, false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, activeTab, bookingStatusFilter]);
 
@@ -1326,7 +1340,10 @@ export const Admin = () => {
                 </CardTitle>
                 <CardDescription>Every booking made on the platform</CardDescription>
               </div>
-              <Select value={bookingStatusFilter} onValueChange={setBookingStatusFilter}>
+              <Select
+                value={bookingStatusFilter}
+                onValueChange={(v) => { setBookingPageIndex(1); setBookingStatusFilter(v); }}
+              >
                 <SelectTrigger className="w-44"><SelectValue placeholder="Filter" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Bookings</SelectItem>
@@ -1347,52 +1364,70 @@ export const Admin = () => {
                   <p className="text-[#717182]">No bookings found.</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {bookings.map(booking => {
-                    const { label, color } = bookingStatusInfo(booking.status);
-                    const isRoomBooking = booking.type === 2;
-                    return (
-                      <div key={booking.id} className="p-4 border rounded-lg space-y-2 hover:border-[#00A5A7]/30 transition-colors">
-                        <div className="flex items-start justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <Badge className={`${color} border text-xs flex-shrink-0`}>{label}</Badge>
-                            <span className="text-sm text-[#34495E] font-medium truncate">
-                              {booking.listingTitle || `Listing #${booking.listingId}`}
-                            </span>
-                            <span className="text-xs text-[#717182]">· #{booking.id}</span>
-                            {isRoomBooking && (
-                              <Badge className="bg-[#B19CD9]/15 text-[#B19CD9] border-[#B19CD9]/30 border text-xs flex-shrink-0">
-                                Entire Room
-                              </Badge>
+                <>
+                  <div className="space-y-3">
+                    {bookings.map(booking => {
+                      const { label, color } = bookingStatusInfo(booking.status);
+                      const isRoomBooking = booking.type === 2;
+                      return (
+                        <div key={booking.id} className="p-4 border rounded-lg space-y-2 hover:border-[#00A5A7]/30 transition-colors">
+                          <div className="flex items-start justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Badge className={`${color} border text-xs flex-shrink-0`}>{label}</Badge>
+                              <span className="text-sm text-[#34495E] font-medium truncate">
+                                {booking.listingTitle || `Listing #${booking.listingId}`}
+                              </span>
+                              <span className="text-xs text-[#717182]">· #{booking.id}</span>
+                              {isRoomBooking && (
+                                <Badge className="bg-[#B19CD9]/15 text-[#B19CD9] border-[#B19CD9]/30 border text-xs flex-shrink-0">
+                                  Entire Room
+                                </Badge>
+                              )}
+                            </div>
+                            {booking.amount != null && (
+                              <span className="text-sm text-[#FF6F61] font-semibold flex-shrink-0">
+                                EGP {booking.amount.toLocaleString()}
+                              </span>
                             )}
                           </div>
-                          {booking.amount != null && (
-                            <span className="text-sm text-[#FF6F61] font-semibold flex-shrink-0">
-                              EGP {booking.amount.toLocaleString()}
-                            </span>
-                          )}
+                          <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
+                            {booking.studentName  && <span className="flex items-center gap-1"><User     className="w-3.5 h-3.5" />{booking.studentName}</span>}
+                            {booking.landlordName && <span className="flex items-center gap-1"><Home     className="w-3.5 h-3.5" />{booking.landlordName}</span>}
+                            {isRoomBooking
+                              ? <span className="flex items-center gap-1"><Home className="w-3.5 h-3.5" />Room #{booking.roomId}</span>
+                              : <span className="flex items-center gap-1"><Bed  className="w-3.5 h-3.5" />Bed #{booking.bedId}</span>
+                            }
+                            <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{formatDate(booking.startDate)} → {formatDate(booking.endDate)}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <BookingDetailDialog booking={booking} />
+                            <Button variant="outline" size="sm"
+                              onClick={() => navigate(`/house/${booking.listingId}`)}
+                              className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
+                              View Listing
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex flex-wrap gap-4 text-sm text-[#717182]">
-                          {booking.studentName  && <span className="flex items-center gap-1"><User     className="w-3.5 h-3.5" />{booking.studentName}</span>}
-                          {booking.landlordName && <span className="flex items-center gap-1"><Home     className="w-3.5 h-3.5" />{booking.landlordName}</span>}
-                          {isRoomBooking
-                            ? <span className="flex items-center gap-1"><Home className="w-3.5 h-3.5" />Room #{booking.roomId}</span>
-                            : <span className="flex items-center gap-1"><Bed  className="w-3.5 h-3.5" />Bed #{booking.bedId}</span>
-                          }
-                          <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{formatDate(booking.startDate)} → {formatDate(booking.endDate)}</span>
-                        </div>
-                        <div className="flex gap-2">
-                          <BookingDetailDialog booking={booking} />
-                          <Button variant="outline" size="sm"
-                            onClick={() => navigate(`/house/${booking.listingId}`)}
-                            className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white">
-                            View Listing
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+
+                  {bookings.length < bookingCount && (
+                    <div className="flex flex-col items-center gap-2 pt-6">
+                      <Button
+                        variant="outline"
+                        onClick={handleShowMoreBookings}
+                        disabled={loadingMoreBookings}
+                        className="border-[#00A5A7] text-[#00A5A7] hover:bg-[#00A5A7] hover:text-white"
+                      >
+                        {loadingMoreBookings ? 'Loading...' : 'Show More'}
+                      </Button>
+                      <p className="text-xs text-[#717182]">
+                        Showing {bookings.length} of {bookingCount} bookings
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
