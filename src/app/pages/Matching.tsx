@@ -108,8 +108,11 @@ export const Matching = () => {
           universityCard:     existing.universityCard     || '',
           bio:                existing.bio                || '',
         });
-      } catch {
-        // Non-fatal: form just stays blank, user fills it from scratch
+      } catch (err: unknown) {
+        // 404 = no profile yet; any other error is non-fatal — form stays blank
+        if (err instanceof Error && !err.message.includes('404')) {
+          console.warn('[Matching] pre-fill fetch error:', err.message);
+        }
       } finally {
         setProfileLoading(false);
       }
@@ -124,22 +127,48 @@ export const Matching = () => {
   // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // ── Client-side validation ───────────────────────────────────────────────
+    if (!formData.birthDate) {
+      toast.error('Please enter your date of birth.'); return;
+    }
+    if (!formData.gender) {
+      toast.error('Please select your gender.'); return;
+    }
+    if (!formData.homeTown) {
+      toast.error('Please select your hometown.'); return;
+    }
+    if (!formData.sleepingHabits) {
+      toast.error('Please select your sleep habits.'); return;
+    }
+    if (!formData.minBudget || !formData.maxBudget) {
+      toast.error('Please enter your budget range.'); return;
+    }
+    if (Number(formData.minBudget) > Number(formData.maxBudget)) {
+      toast.error('Min budget cannot exceed max budget.'); return;
+    }
+
+    const payload = {
+      firstName:          formData.firstName,
+      lastName:           formData.lastName,
+      birthDate:          new Date(formData.birthDate).toISOString(),
+      gender:             GENDER_MAP[formData.gender] || 1,
+      homeTown:           formData.homeTown,
+      facultyField:       formData.facultyField,
+      lookingForRoommate: formData.lookingForRoommate,
+      sleepingHabits:     SLEEP_MAP[formData.sleepingHabits] || 1,
+      minBudget:          Number(formData.minBudget),
+      maxBudget:          Number(formData.maxBudget),
+      nationalCard:       null,
+      universityCard:     formData.universityCard || '',
+      bio:                formData.bio || '',
+    };
+
+    console.log('[CompleteProfile] payload →', payload);
+
     setLoading(true);
     try {
-      await api.post('/Student/CompleteProfile', {
-        firstName:          formData.firstName,
-        lastName:           formData.lastName,
-        birthDate:          new Date(formData.birthDate).toISOString(),
-        gender:             GENDER_MAP[formData.gender] || 1,
-        homeTown:           formData.homeTown,
-        facultyField:       formData.facultyField,
-        lookingForRoommate: formData.lookingForRoommate,
-        sleepingHabits:     SLEEP_MAP[formData.sleepingHabits] || 1,
-        minBudget:          Number(formData.minBudget)  || 0,
-        maxBudget:          Number(formData.maxBudget)  || 0,
-        universityCard:     formData.universityCard,
-        bio:                formData.bio,
-      });
+      await api.post('/Student/CompleteProfile', payload);
 
       updateUser({
         firstName:          formData.firstName,
