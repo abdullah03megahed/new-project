@@ -27,7 +27,6 @@ export const CompleteProfile = () => {
     lastName: user?.lastName || '',
     birthDate: '',
     homeTown: '',
-    nationalId: '',
   });
 
   useEffect(() => {
@@ -45,10 +44,6 @@ export const CompleteProfile = () => {
       toast.error('Please select your home town.');
       return;
     }
-    if (!formData.nationalId.trim()) {
-      toast.error('National ID is required.');
-      return;
-    }
     if (!formData.birthDate) {
       toast.error('Date of birth is required.');
       return;
@@ -61,7 +56,6 @@ export const CompleteProfile = () => {
         lastName: formData.lastName,
         birthDate: new Date(formData.birthDate).toISOString(),
         homeTown: formData.homeTown,
-        nationalId: formData.nationalId,
       });
 
       updateUser({
@@ -70,7 +64,6 @@ export const CompleteProfile = () => {
         displayName: `${formData.firstName} ${formData.lastName}`,
         dateOfBirth: formData.birthDate,
         homeTown: formData.homeTown,
-        nationalId: formData.nationalId,
       });
 
       toast.success('Profile completed! You can now add properties.');
@@ -131,18 +124,6 @@ export const CompleteProfile = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="nationalId">National ID</Label>
-              <Input
-                id="nationalId"
-                placeholder="Enter your national ID number"
-                value={formData.nationalId}
-                onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })}
-                required
-                className="border-[#00A5A7]/20"
-              />
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="birthDate">Date of Birth</Label>
               <Input
                 id="birthDate"
@@ -174,7 +155,7 @@ export const CompleteProfile = () => {
 
             <Button
               type="submit"
-              disabled={saving || !formData.homeTown || !formData.nationalId.trim() || !formData.birthDate}
+              disabled={saving || !formData.homeTown || !formData.birthDate}
               className="w-full bg-[#FF6F61] hover:bg-[#FF6F61]/90 text-white"
             >
               {saving ? 'Saving...' : 'Complete Profile & Go to Dashboard'}
