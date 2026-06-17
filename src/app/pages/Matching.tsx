@@ -159,7 +159,7 @@ export const Matching = () => {
       sleepingHabits:     SLEEP_MAP[formData.sleepingHabits] || 1,
       minBudget:          Number(formData.minBudget),
       maxBudget:          Number(formData.maxBudget),
-
+      universityCard:     formData.universityCard || '',
       bio:                formData.bio || '',
     };
 
@@ -181,6 +181,7 @@ export const Matching = () => {
         sleepCode:          formData.sleepingHabits as 'Early Bird' | 'Night Owl' | 'Flexible',
         minBudget:          Number(formData.minBudget) || 0,
         maxBudget:          Number(formData.maxBudget) || 0,
+        universityCard:     formData.universityCard,
         bio:                formData.bio,
       });
 
