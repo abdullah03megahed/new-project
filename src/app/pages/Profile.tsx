@@ -79,12 +79,9 @@ interface BookingDetail {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// A student profile is considered incomplete if they never finished the matching
-// form. nationalCard is a required field in that form — if it's blank/null/undefined
-// the user bailed out early and we show a "Complete Profile" prompt.
 const isStudentProfileIncomplete = (profile: StudentProfile | null | undefined): boolean => {
-  if (!profile) return false; // no data loaded yet — don't show the prompt
-  const card = profile.nationalCard;
+  if (!profile) return false;
+  const card = profile.universityCard;
   return !card || (typeof card === 'string' && card.trim() === '');
 };
 
@@ -313,7 +310,6 @@ export const Profile = () => {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // ── NEW: track whether the student profile fetch failed (404 / no record yet)
   const [studentNotFound, setStudentNotFound] = useState(false);
 
   const [studentData, setStudentData] = useState<StudentProfile | null>(null);
@@ -348,8 +344,6 @@ export const Profile = () => {
             data = await api.get<StudentProfile>(`/Student/Email?email=${encodeURIComponent(user.email)}`);
             if (data?.id) updateUser({ id: String(data.id) });
           }
-          // Always set the data — even if nationalCard is missing.
-          // The incomplete-profile guard below will handle showing the prompt.
           setStudentData(data);
           setStudentForm(data);
 
@@ -366,8 +360,6 @@ export const Profile = () => {
         }
       } catch (err) {
         console.error('[Profile] Failed to load profile:', err);
-        // If a student record doesn't exist at all yet, flag it so we can
-        // still show the "Complete Profile" prompt.
         if (user.type === 'student') {
           setStudentNotFound(true);
         } else {
@@ -452,10 +444,6 @@ export const Profile = () => {
   }
 
   // ─── Incomplete student profile ───────────────────────────────────────────
-  // Show this when:
-  //   (a) the student record was fetched but nationalCard is empty, OR
-  //   (b) the student record didn't exist at all (API error / 404)
-  // The card disappears automatically once nationalCard is populated.
   if (user.type === 'student' && (studentNotFound || isStudentProfileIncomplete(studentData))) {
     return (
       <div className="min-h-screen bg-[#B19CD9]/5 py-8">
@@ -656,18 +644,8 @@ export const Profile = () => {
                       </div>
                       <div className="space-y-2">
                         <Label>Gender</Label>
-                        {isEditing ? (
-                          <Select value={String(studentForm.gender)}
-                            onValueChange={(v) => setStudentForm({ ...studentForm, gender: Number(v) })}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="1">Male</SelectItem>
-                              <SelectItem value="2">Female</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input value={genderLabel(studentForm.gender)} disabled />
-                        )}
+                        {/* Gender is always read-only — never editable */}
+                        <Input value={genderLabel(studentForm.gender)} disabled />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -727,15 +705,9 @@ export const Profile = () => {
                         <Input value={sleepLabel(studentForm.sleepingHabits)} disabled />
                       )}
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>National Card ID</Label>
-                        <Input value={studentForm.nationalCard} disabled />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>University Card ID</Label>
-                        <Input value={studentForm.universityCard} disabled />
-                      </div>
+                    <div className="space-y-2">
+                      <Label>University Card ID</Label>
+                      <Input value={studentForm.universityCard} disabled />
                     </div>
                     <div className="flex items-center space-x-2">
                       <Checkbox id="lookingForRoommate" checked={studentForm.lookingForRoommate}
