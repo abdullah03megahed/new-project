@@ -760,10 +760,6 @@ export const Profile = () => {
                           disabled={!isEditing} />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>National ID</Label>
-                      <Input value={landlordForm.nationalId} disabled />
-                    </div>
                   </>
                 )}
               </CardContent>
