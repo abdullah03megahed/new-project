@@ -263,7 +263,7 @@ export const Dashboard = () => {
     );
   }
 
-  const profileIncomplete = !user.nationalId;
+  const profileIncomplete = user.nationalId;
 
   // ─── FIX 1: Fetch dashboard stats from the dedicated endpoint ──────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
