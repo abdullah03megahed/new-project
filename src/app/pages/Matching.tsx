@@ -56,7 +56,6 @@ export const Matching = () => {
     sleepingHabits:     '',
     minBudget:          '',
     maxBudget:          '',
-    nationalCard:       '',
     universityCard:     '',
     bio:                '',
   });
@@ -106,7 +105,6 @@ export const Matching = () => {
           sleepingHabits:     SLEEP_REVERSE[existing.sleepingHabits] || '',
           minBudget:          existing.minBudget > 0 ? String(existing.minBudget) : '',
           maxBudget:          existing.maxBudget > 0 ? String(existing.maxBudget) : '',
-          nationalCard:       existing.nationalCard       || '',
           universityCard:     existing.universityCard     || '',
           bio:                existing.bio                || '',
         });
@@ -139,7 +137,6 @@ export const Matching = () => {
         sleepingHabits:     SLEEP_MAP[formData.sleepingHabits] || 1,
         minBudget:          Number(formData.minBudget)  || 0,
         maxBudget:          Number(formData.maxBudget)  || 0,
-        nationalCard:       formData.nationalCard,
         universityCard:     formData.universityCard,
         bio:                formData.bio,
       });
@@ -157,7 +154,6 @@ export const Matching = () => {
         minBudget:          Number(formData.minBudget) || 0,
         maxBudget:          Number(formData.maxBudget) || 0,
         bio:                formData.bio,
-        nationalId:         formData.nationalCard,
       });
 
       toast.success('Profile completed!');
@@ -260,16 +256,6 @@ export const Matching = () => {
                   placeholder="e.g., Engineering, Medicine, Business"
                   value={formData.facultyField}
                   onChange={(e) => setFormData({ ...formData, facultyField: e.target.value })}
-                  required className="h-12 border-[#00A5A7]/20"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>National ID Number</Label>
-                <Input
-                  placeholder="Enter your national ID"
-                  value={formData.nationalCard}
-                  onChange={(e) => setFormData({ ...formData, nationalCard: e.target.value })}
                   required className="h-12 border-[#00A5A7]/20"
                 />
               </div>
