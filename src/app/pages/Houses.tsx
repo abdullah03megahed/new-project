@@ -215,9 +215,9 @@ export const Houses = () => {
     setMatchError(false);
     try {
       const matchParams = new URLSearchParams();
-      if (city.trim()) matchParams.append('city',city.trim);
+      if (city.trim()) matchParams.append('city', city.trim());
       const query = matchParams.toString();
-      const data = await api.get<MatchedListing[]>('/Matching/roommate${query ? `?${query}` : ''} ');
+      const data = await api.get<MatchedListing[]>(`/Matching/roommate${query ? `?${query}` : ''}`);
       setMatchedListings(data || []);
     } catch (err) {
       console.error('Failed to fetch roommate matches', err);
