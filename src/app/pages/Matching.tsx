@@ -37,6 +37,14 @@ const GENDER_REVERSE: Record<number, string> = { 1: 'male', 2: 'female' };
 const SLEEP_MAP: Record<string, number>   = { 'Early Bird': 1, 'Night Owl': 2, 'Flexible': 3 };
 const SLEEP_REVERSE: Record<number, string> = { 1: 'Early Bird', 2: 'Night Owl', 3: 'Flexible' };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const getMaxBirthDate = () => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 17);
+  return d.toISOString().split('T')[0];
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const Matching = () => {
@@ -70,9 +78,6 @@ export const Matching = () => {
   }, [user, navigate]);
 
   // ── Pre-fill existing data ──────────────────────────────────────────────────
-  // When a student returns to finish an incomplete profile, we load whatever
-  // the backend already has and populate the form fields so they don't have to
-  // re-enter data they may have partially saved.
   useEffect(() => {
     if (!user || user.type !== 'student') return;
 
@@ -91,7 +96,6 @@ export const Matching = () => {
 
         if (!existing) return;
 
-        // Map the server values back to the form's string-based keys
         setFormData({
           firstName:          existing.firstName          || '',
           lastName:           existing.lastName           || '',
@@ -109,7 +113,6 @@ export const Matching = () => {
           bio:                existing.bio                || '',
         });
       } catch (err: unknown) {
-        // 404 = no profile yet; any other error is non-fatal — form stays blank
         if (err instanceof Error && !err.message.includes('404')) {
           console.warn('[Matching] pre-fill fetch error:', err.message);
         }
@@ -132,6 +135,14 @@ export const Matching = () => {
     if (!formData.birthDate) {
       toast.error('Please enter your date of birth.'); return;
     }
+
+    // Must be at least 17 years old
+    const minAgeDate = new Date();
+    minAgeDate.setFullYear(minAgeDate.getFullYear() - 17);
+    if (new Date(formData.birthDate) > minAgeDate) {
+      toast.error('You must be at least 17 years old.'); return;
+    }
+
     if (!formData.gender) {
       toast.error('Please select your gender.'); return;
     }
@@ -143,6 +154,9 @@ export const Matching = () => {
     }
     if (!formData.minBudget || !formData.maxBudget) {
       toast.error('Please enter your budget range.'); return;
+    }
+    if (Number(formData.minBudget) < 300) {
+      toast.error('Minimum budget cannot be less than 300 EGP.'); return;
     }
     if (Number(formData.minBudget) > Number(formData.maxBudget)) {
       toast.error('Min budget cannot exceed max budget.'); return;
@@ -254,6 +268,7 @@ export const Matching = () => {
                 </Select>
               </div>
 
+              {/* ── Date of Birth — user must be at least 17 ── */}
               <div className="space-y-2">
                 <Label>Date of Birth</Label>
                 <Input
@@ -261,7 +276,7 @@ export const Matching = () => {
                   value={formData.birthDate}
                   onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
                   required className="h-12 border-[#00A5A7]/20"
-                  max={new Date().toISOString().split('T')[0]}
+                  max={getMaxBirthDate()}
                 />
               </div>
 
@@ -299,14 +314,15 @@ export const Matching = () => {
                 />
               </div>
 
+              {/* ── Budget — min is 300 EGP ── */}
               <div className="space-y-2">
                 <Label>Budget Range (EGP/month)</Label>
                 <div className="grid grid-cols-2 gap-4">
                   <Input
-                    type="number" placeholder="Min budget"
+                    type="number" placeholder="Min budget (300+)"
                     value={formData.minBudget}
                     onChange={(e) => setFormData({ ...formData, minBudget: e.target.value })}
-                    required className="h-12 border-[#00A5A7]/20"
+                    required min={300} className="h-12 border-[#00A5A7]/20"
                   />
                   <Input
                     type="number" placeholder="Max budget"
@@ -349,14 +365,16 @@ export const Matching = () => {
                 </Select>
               </div>
 
+              {/* ── Bio — max 500 characters ── */}
               <div className="space-y-2">
                 <Label>Bio <span className="text-[#717182] text-sm">(Optional)</span></Label>
                 <Textarea
                   placeholder="Tell potential roommates about yourself..."
                   value={formData.bio}
-                  onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, bio: e.target.value.slice(0, 500) })}
                   rows={3} className="border-[#00A5A7]/20"
                 />
+                <p className="text-xs text-[#717182] text-right">{formData.bio.length}/500</p>
               </div>
 
               <div className="pt-4">
