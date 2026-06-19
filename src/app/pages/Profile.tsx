@@ -79,10 +79,23 @@ interface BookingDetail {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * A student profile is considered incomplete only if any of the REQUIRED fields
+ * are missing. bio and universityCard are optional and must NOT trigger this.
+ */
 const isStudentProfileIncomplete = (profile: StudentProfile | null | undefined): boolean => {
   if (!profile) return false;
-  const card = profile.universityCard;
-  return !card || (typeof card === 'string' && card.trim() === '');
+  return (
+    !profile.firstName?.trim() ||
+    !profile.lastName?.trim()  ||
+    !profile.birthDate         ||
+    !profile.gender            ||
+    !profile.homeTown?.trim()  ||
+    !profile.facultyField?.trim() ||
+    !profile.sleepingHabits    ||
+    !(profile.minBudget > 0)   ||
+    !(profile.maxBudget > 0)
+  );
 };
 
 const reportStatusLabel = (s: number) => {
@@ -670,7 +683,7 @@ export const Profile = () => {
                         disabled={!isEditing} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Bio</Label>
+                      <Label>Bio <span className="text-[#717182] text-sm">(Optional)</span></Label>
                       <Input value={studentForm.bio}
                         onChange={(e) => setStudentForm({ ...studentForm, bio: e.target.value })}
                         disabled={!isEditing} placeholder="Tell others about yourself..." />
@@ -706,7 +719,7 @@ export const Profile = () => {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label>University Card ID</Label>
+                      <Label>University Card ID <span className="text-[#717182] text-sm">(Optional)</span></Label>
                       <Input value={studentForm.universityCard} disabled />
                     </div>
                     <div className="flex items-center space-x-2">
